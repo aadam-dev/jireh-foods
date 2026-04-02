@@ -5,6 +5,7 @@ out
 dist
 coverage
 site
+docs
 .env
 .env.local
 .env.*.local
