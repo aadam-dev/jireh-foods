@@ -42,8 +42,12 @@ export async function POST(req: NextRequest) {
 
   const body = await req.json();
 
-  // Transaction log
-  if (body.type === 'transaction') {
+  const isInventoryTx =
+    typeof body?.itemId === 'string' &&
+    ['PURCHASE', 'USAGE', 'ADJUSTMENT', 'WASTE'].includes(body?.type);
+
+  // Transaction log (distinct from creating a new stock item — no itemId + tx type on new items)
+  if (isInventoryTx) {
     const data = txSchema.parse(body);
     const tx = await prisma.$transaction(async (tx) => {
       const item = await tx.inventoryItem.findUnique({ where: { id: data.itemId } });

@@ -32,6 +32,8 @@ export function canAccess(role: UserRole, resource: string): boolean {
   return permissions[resource]?.includes(role) ?? false;
 }
 
+const ADMIN_ROLES: UserRole[] = [UserRole.OWNER, UserRole.MANAGER, UserRole.ACCOUNTANT];
+
 export function isAdminRole(role: UserRole): boolean {
-  return [UserRole.OWNER, UserRole.MANAGER, UserRole.ACCOUNTANT].includes(role);
+  return ADMIN_ROLES.includes(role);
 }

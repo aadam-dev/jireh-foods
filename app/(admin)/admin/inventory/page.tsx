@@ -78,7 +78,7 @@ export default function InventoryPage() {
       await fetch('/api/admin/inventory', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: 'transaction', itemId: txModal.item.id, ...values }),
+        body: JSON.stringify({ itemId: txModal.item.id, ...values }),
       });
       await fetch_();
       setTxModal({ open: false });

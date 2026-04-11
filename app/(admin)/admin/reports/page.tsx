@@ -144,7 +144,7 @@ export default function ReportsPage() {
                 <p className="text-sm text-[#aba8a4] text-center py-8">No data</p>
               ) : (
                 <div className="space-y-3">
-                  {paymentData.sort(([,a],[,b]) => b - a).map(({ name, value }) => {
+                  {[...paymentData].sort((a, b) => b.value - a.value).map(({ name, value }) => {
                     const total = paymentData.reduce((s, d) => s + d.value, 0);
                     const pct = total > 0 ? (value / total) * 100 : 0;
                     const labels: Record<string, string> = { CASH: 'Cash', MOMO: 'Mobile Money', CARD: 'Card', BANK_TRANSFER: 'Bank Transfer', UNPAID: 'Unpaid' };
