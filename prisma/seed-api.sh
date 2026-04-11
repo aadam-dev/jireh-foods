@@ -1,14 +1,19 @@
 #!/bin/bash
-set -e
+# Requires: SUPABASE_ACCESS_TOKEN, SUPABASE_PROJECT_REF (see .env.example)
+set -euo pipefail
 
-PAT="REDACTED"
-REF="oflraijzxczmzbkshfpe"
+if [[ -z "${SUPABASE_ACCESS_TOKEN:-}" || -z "${SUPABASE_PROJECT_REF:-}" ]]; then
+  echo "❌ Set SUPABASE_ACCESS_TOKEN and SUPABASE_PROJECT_REF (e.g. source .env or export them)." >&2
+  exit 1
+fi
+
+REF="$SUPABASE_PROJECT_REF"
 API="https://api.supabase.com/v1/projects/$REF/database/query"
 
 run_sql() {
   local result
   result=$(curl -s -X POST "$API" \
-    -H "Authorization: Bearer $PAT" \
+    -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
     -H "Content-Type: application/json" \
     --data-raw "$(printf '%s' "$1" | jq -Rsc '{query: .}')")
   if echo "$result" | jq -e '.message' > /dev/null 2>&1; then

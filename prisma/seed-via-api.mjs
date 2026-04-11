@@ -1,8 +1,18 @@
 // Seeds the database via Supabase Management API (bypasses direct DB port restrictions)
+// Requires: SUPABASE_ACCESS_TOKEN, SUPABASE_PROJECT_REF (see .env.example)
+import 'dotenv/config';
 import bcrypt from 'bcryptjs';
 
-const PROJECT_REF = 'oflraijzxczmzbkshfpe';
-const PAT = 'REDACTED';
+const PROJECT_REF = process.env.SUPABASE_PROJECT_REF;
+const PAT = process.env.SUPABASE_ACCESS_TOKEN;
+
+if (!PROJECT_REF || !PAT) {
+  console.error(
+    '❌ Missing env: SUPABASE_PROJECT_REF and/or SUPABASE_ACCESS_TOKEN.\n' +
+      '   Add them to .env (see .env.example) or export before running this script.'
+  );
+  process.exit(1);
+}
 
 async function sql(query) {
   const res = await fetch(`https://api.supabase.com/v1/projects/${PROJECT_REF}/database/query`, {
