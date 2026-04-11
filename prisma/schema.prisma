@@ -1,0 +1,262 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+}
+
+enum UserRole {
+  OWNER
+  MANAGER
+  ACCOUNTANT
+  CASHIER
+  STAFF
+}
+
+enum OrderStatus {
+  PENDING
+  PREPARING
+  READY
+  COMPLETED
+  CANCELLED
+}
+
+enum OrderSource {
+  POS
+  ONLINE
+  BOLT
+  WALK_IN
+}
+
+enum PaymentMethod {
+  CASH
+  MOMO
+  CARD
+  BANK_TRANSFER
+  UNPAID
+}
+
+enum DeliveryType {
+  DINE_IN
+  TAKEAWAY
+  DELIVERY
+}
+
+enum InventoryTransactionType {
+  PURCHASE
+  USAGE
+  ADJUSTMENT
+  WASTE
+}
+
+enum PayrollStatus {
+  DRAFT
+  APPROVED
+  PAID
+}
+
+enum SalaryType {
+  MONTHLY
+  DAILY
+  HOURLY
+}
+
+model User {
+  id                  String         @id @default(cuid())
+  name                String
+  email               String         @unique
+  password            String
+  role                UserRole       @default(CASHIER)
+  isActive            Boolean        @default(true)
+  passwordResetRequired Boolean      @default(false)
+  createdAt           DateTime       @default(now())
+  updatedAt           DateTime       @updatedAt
+
+  staffProfile        StaffProfile?
+  orders              Order[]
+  auditLogs           AuditLog[]
+  payrollRecords      PayrollRecord[]
+}
+
+model StaffProfile {
+  id          String     @id @default(cuid())
+  userId      String     @unique
+  user        User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  phone       String?
+  hireDate    DateTime?
+  salaryType  SalaryType @default(MONTHLY)
+  salary      Decimal    @default(0) @db.Decimal(12, 2)
+  bankName    String?
+  bankAccount String?
+  address     String?
+  notes       String?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+}
+
+model MenuCategory {
+  id        String     @id @default(cuid())
+  name      String
+  slug      String     @unique
+  sortOrder Int        @default(0)
+  isActive  Boolean    @default(true)
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  items     MenuItem[]
+}
+
+model MenuItem {
+  id          String       @id @default(cuid())
+  categoryId  String
+  category    MenuCategory @relation(fields: [categoryId], references: [id])
+  name        String
+  description String?
+  price       Decimal      @db.Decimal(10, 2)
+  costPrice   Decimal?     @db.Decimal(10, 2)
+  image       String?
+  isAvailable Boolean      @default(true)
+  isPopular   Boolean      @default(false)
+  tags        String[]     @default([])
+  sortOrder   Int          @default(0)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  orderItems  OrderItem[]
+}
+
+model Order {
+  id              String        @id @default(cuid())
+  orderNumber     String        @unique
+  status          OrderStatus   @default(PENDING)
+  source          OrderSource   @default(POS)
+  deliveryType    DeliveryType  @default(DINE_IN)
+  paymentMethod   PaymentMethod @default(CASH)
+  paymentStatus   String        @default("PENDING")
+  subtotal        Decimal       @db.Decimal(10, 2)
+  total           Decimal       @db.Decimal(10, 2)
+  notes           String?
+  customerName    String?
+  customerPhone   String?
+  customerAddress String?
+  staffId         String?
+  staff           User?         @relation(fields: [staffId], references: [id])
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  items           OrderItem[]
+}
+
+model OrderItem {
+  id         String   @id @default(cuid())
+  orderId    String
+  order      Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  menuItemId String
+  menuItem   MenuItem @relation(fields: [menuItemId], references: [id])
+  name       String
+  price      Decimal  @db.Decimal(10, 2)
+  quantity   Int
+  subtotal   Decimal  @db.Decimal(10, 2)
+  notes      String?
+  createdAt  DateTime @default(now())
+}
+
+model InventoryItem {
+  id             String   @id @default(cuid())
+  name           String
+  unit           String
+  quantity       Decimal  @db.Decimal(10, 3)
+  lowStockThreshold Decimal @db.Decimal(10, 3)
+  costPerUnit    Decimal? @db.Decimal(10, 2)
+  supplier       String?
+  notes          String?
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  transactions   InventoryTransaction[]
+}
+
+model InventoryTransaction {
+  id          String                   @id @default(cuid())
+  itemId      String
+  item        InventoryItem            @relation(fields: [itemId], references: [id])
+  type        InventoryTransactionType
+  quantity    Decimal                  @db.Decimal(10, 3)
+  unitCost    Decimal?                 @db.Decimal(10, 2)
+  totalCost   Decimal?                 @db.Decimal(10, 2)
+  notes       String?
+  reference   String?
+  createdAt   DateTime                 @default(now())
+}
+
+model ExpenseCategory {
+  id        String    @id @default(cuid())
+  name      String
+  isActive  Boolean   @default(true)
+  createdAt DateTime  @default(now())
+
+  expenses  Expense[]
+}
+
+model Expense {
+  id          String          @id @default(cuid())
+  categoryId  String
+  category    ExpenseCategory @relation(fields: [categoryId], references: [id])
+  description String
+  amount      Decimal         @db.Decimal(10, 2)
+  paymentMethod PaymentMethod @default(CASH)
+  receiptUrl  String?
+  date        DateTime        @default(now())
+  notes       String?
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+}
+
+model Deposit {
+  id          String   @id @default(cuid())
+  amount      Decimal  @db.Decimal(10, 2)
+  bankName    String
+  reference   String?
+  date        DateTime @default(now())
+  notes       String?
+  createdAt   DateTime @default(now())
+}
+
+model PayrollRecord {
+  id           String        @id @default(cuid())
+  userId       String
+  user         User          @relation(fields: [userId], references: [id])
+  periodStart  DateTime
+  periodEnd    DateTime
+  baseSalary   Decimal       @db.Decimal(10, 2)
+  bonus        Decimal       @default(0) @db.Decimal(10, 2)
+  deductions   Decimal       @default(0) @db.Decimal(10, 2)
+  netPay       Decimal       @db.Decimal(10, 2)
+  status       PayrollStatus @default(DRAFT)
+  notes        String?
+  paidAt       DateTime?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  userId     String?
+  user       User?    @relation(fields: [userId], references: [id])
+  action     String
+  entity     String
+  entityId   String?
+  details    Json?
+  ipAddress  String?
+  createdAt  DateTime @default(now())
+}
+
+model Settings {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     String
+  updatedAt DateTime @updatedAt
+}

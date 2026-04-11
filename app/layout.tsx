@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Cormorant_Garamond, DM_Sans } from "next/font/google";
 import "./globals.css";
 import { StickyCTA } from "./components/StickyCTA";
+import { SessionProvider } from "next-auth/react";
 
 const cormorant = Cormorant_Garamond({
   variable: "--font-cormorant",
@@ -40,7 +41,7 @@ const localBusinessJsonLd = {
   telephone: "+233551133481",
   openingHoursSpecification: {
     "@type": "OpeningHoursSpecification",
-    dayOfWeek: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"],
+    dayOfWeek: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"],
     opens: "11:00",
     closes: "20:00",
   },
@@ -63,7 +64,9 @@ export default function RootLayout({
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: JSON.stringify(localBusinessJsonLd) }}
         />
-        {children}
+        <SessionProvider>
+          {children}
+        </SessionProvider>
         <StickyCTA />
       </body>
     </html>

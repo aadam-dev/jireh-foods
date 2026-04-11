@@ -5,7 +5,7 @@ import { SectionReveal } from "./components/SectionReveal";
 import { HeroBackground } from "./components/HeroBackground";
 import { JirehLogo } from "./components/JirehLogo";
 import { MapEmbed } from "./components/MapEmbed";
-import { MapPin, Phone, MessageCircle, Mail, ShoppingBag, Utensils, CupSoda } from "lucide-react";
+import { MapPin, Phone, MessageCircle, ShoppingBag, Utensils, CupSoda } from "lucide-react";
 
 const PHONE_DISPLAY = "055 113 3481";
 const PHONE_TEL = "tel:+233551133481";
@@ -14,24 +14,72 @@ const BOLT_FOOD = "https://food.bolt.eu/en/137-accra/p/182474-jireh-natural-food
 const WHATSAPP_ORDER = "https://wa.me/233551133481?text=Hello%20Jireh%20Natural%20Foods!%20I%20would%20like%20to%20place%20an%20order...";
 const WHATSAPP_INQUIRY = "https://wa.me/233551133481?text=Hello%20Jireh%20Natural%20Foods!%20I%20would%20like%20to%20make%20an%20inquiry...";
 const WHATSAPP = "https://wa.me/233551133481";
-const EMAIL = "mailto:jirehnaturalfoodsgh@gmail.com";
-const INSTAGRAM = "https://instagram.com/danquahkusi";
-const FACEBOOK = "https://facebook.com/danquahkusi";
-const YOUTUBE = "https://www.youtube.com/results?search_query=Chef+Princekay";
 
-const FOOD_MENU = [
-  { name: "Asian Fried Rice with Grilled Chicken", price: 80, desc: "Aromatic and perfectly seasoned." },
-  { name: "Sea Food Fried Rice", price: 120, desc: "Loaded with fresh ocean catch." },
-  { name: "Jollof Rice with Grilled Chicken", price: 65, desc: "Our bestselling classic." },
-  { name: "Boiled Yam with Palava Sauce", price: 49, desc: "Rich spanich stew with fish and protein." },
-  { name: "Japanese Fried Chicken", price: 60, desc: "Crispy bites of perfection." },
-  { name: "Coriander Coleslaw", price: 60, desc: "Fresh, crunchy, and tangy side." },
-  { name: "Banku with Okro/Groundnut Soup", price: 40, desc: "Served fresh and hot." },
-  { name: "Fufu with Meat, Goat Light Soup", price: 60, desc: "Authentic comfort food." },
+/** Confirmed social handles — same @ on TikTok, Instagram & Facebook */
+const SOCIAL_HANDLE = "jirehnaturalfoods";
+const TIKTOK = `https://www.tiktok.com/@${SOCIAL_HANDLE}`;
+const INSTAGRAM = `https://www.instagram.com/${SOCIAL_HANDLE}/`;
+const FACEBOOK = `https://www.facebook.com/${SOCIAL_HANDLE}`;
+
+type MenuServing = { size: string; price: number };
+
+type FoodMenuItem = {
+  id: string;
+  name: string;
+  description?: string;
+  servings: MenuServing[];
+};
+
+const fmtGHS = (n: number) => `GH₵ ${n % 1 === 0 ? n.toFixed(0) : n.toFixed(2)}`;
+
+const FOOD_MENU: FoodMenuItem[] = [
+  {
+    id: "jollof",
+    name: "Jollof Rice",
+    description: "With grilled or fried chicken.",
+    servings: [
+      { size: "Small", price: 40 },
+      { size: "Medium", price: 55 },
+      { size: "Large", price: 65 },
+    ],
+  },
+  {
+    id: "asian",
+    name: "Asian Fried Rice",
+    description: "With grilled or fried chicken.",
+    servings: [
+      { size: "Small", price: 40 },
+      { size: "Medium", price: 55 },
+      { size: "Large", price: 65 },
+    ],
+  },
+  {
+    id: "fries",
+    name: "Fries with Chicken",
+    description: "Crispy potato fries with fried chicken.",
+    servings: [{ size: "Regular", price: 60 }],
+  },
+  {
+    id: "fufu",
+    name: "Fufu",
+    description: "With meat / goat light soup.",
+    servings: [
+      { size: "Medium", price: 50 },
+      { size: "Large", price: 60 },
+    ],
+  },
+  {
+    id: "banku",
+    name: "Banku",
+    description: "With okro stew or groundnut soup.",
+    servings: [
+      { size: "Medium", price: 40 },
+      { size: "Large", price: 50 },
+    ],
+  },
 ];
 
 const JUICE_MENU = [
-  { name: "Burkina", price: 15 },
   { name: "Sobolo", price: 10 },
   { name: "Millet drink", price: 10 },
   { name: "Pineapple drink", price: 10 },
@@ -39,24 +87,27 @@ const JUICE_MENU = [
 
 const FEATURED_ITEMS = [
   {
-    name: "Jollof Rice with Grilled Chicken",
+    name: "Jollof Rice",
+    subtitle: "Grilled or fried chicken",
     note: "Smoky, spicy and balanced with fresh herbs.",
     tag: "Bestseller",
-    price: 65,
+    priceLabel: "GH₵ 40 – 65",
     image: "/jireh/food1.jpg",
   },
   {
-    name: "Sea Food Fried Rice",
-    note: "Loaded with seafood and aromatic spices.",
-    tag: "Chef's Pick",
-    price: 120,
+    name: "Asian Fried Rice",
+    subtitle: "Grilled or fried chicken",
+    note: "Aromatic rice — small, medium or large.",
+    tag: "Popular",
+    priceLabel: "GH₵ 40 – 65",
     image: "/jireh/food2.jpg",
   },
   {
-    name: "Fufu with Goat Light Soup",
+    name: "Fufu",
+    subtitle: "Meat / goat light soup",
     note: "Comforting soup with deep traditional flavor.",
     tag: "Classic",
-    price: 60,
+    priceLabel: "GH₵ 50 – 60",
     image: "/jireh/fufu.png",
   },
 ];
@@ -78,7 +129,7 @@ const EXPERIENCE_PILLARS = [
 
 const GALLERY_ITEMS = [
   { src: "/jireh/food1.jpg", alt: "Jollof rice and grilled chicken plate" },
-  { src: "/jireh/food2.jpg", alt: "Seafood fried rice close up" },
+  { src: "/jireh/food2.jpg", alt: "Asian fried rice with chicken" },
   { src: "/jireh/juice1.jpg", alt: "Fresh bottled sobolo drinks" },
   { src: "/jireh/juice2.jpg", alt: "Fresh bottled pineapple juice" },
 ];
@@ -199,8 +250,8 @@ export default function Home() {
           </div>
           <div className="mt-5 grid w-full max-w-3xl grid-cols-1 gap-3 sm:grid-cols-3 z-20">
             <div className="rounded-2xl border border-white/10 bg-black/30 p-4 backdrop-blur shadow-lg">
-              <p className="text-xl font-semibold text-white">9am - 8:30pm</p>
-              <p className="text-xs text-white/70">Mon - Sat (Sun 12-8pm)</p>
+              <p className="text-xl font-semibold text-white">11am - 8pm</p>
+              <p className="text-xs text-white/70">Mon - Sat · Closed Sunday</p>
             </div>
             <div className="rounded-2xl border border-white/10 bg-black/30 p-4 backdrop-blur shadow-lg">
               <p className="text-2xl font-semibold text-white">100%</p>
@@ -302,9 +353,10 @@ export default function Home() {
                   <h3 className="mt-4 font-serif text-2xl font-semibold text-[var(--foreground)]">
                     {item.name}
                   </h3>
+                  <p className="mt-1 text-sm font-medium text-[var(--accent)]/90">{item.subtitle}</p>
                   <p className="mt-2 text-sm text-[var(--muted)]">{item.note}</p>
-                  <p className="mt-5 text-xl font-semibold text-[var(--accent)]">
-                    GH₵ {item.price.toFixed(2)}
+                  <p className="mt-5 text-xl font-semibold tabular-nums text-[var(--accent)]">
+                    {item.priceLabel}
                   </p>
                 </div>
               </article>
@@ -365,21 +417,31 @@ export default function Home() {
                   <h3 className="font-serif text-3xl font-semibold text-[var(--foreground)]">Food</h3>
                 </div>
                 
-                <ul className="space-y-6" role="list">
+                <ul className="space-y-8" role="list">
                   {FOOD_MENU.map((item) => (
-                    <li key={item.name} className="group/item relative pb-6 border-b border-white/5 last:border-0 last:pb-0">
-                      <div className="flex justify-between items-start gap-4">
-                        <div className="flex-1">
+                    <li key={item.id} className="group/item relative pb-8 border-b border-white/5 last:border-0 last:pb-0">
+                      <div className="flex flex-col gap-3">
+                        <div>
                           <h4 className="text-lg font-medium text-[var(--foreground)] group-hover/item:text-[var(--accent-bright)] transition-colors">
                             {item.name}
                           </h4>
-                          {item.desc && (
-                            <p className="mt-1 text-sm text-[var(--muted)]">{item.desc}</p>
-                          )}
+                          {item.description ? (
+                            <p className="mt-1 text-sm text-[var(--muted)]">{item.description}</p>
+                          ) : null}
                         </div>
-                        <span className="font-semibold tabular-nums text-[var(--accent-bright)] text-lg whitespace-nowrap bg-[var(--surface-dark)] px-3 py-1 rounded-lg">
-                          GH₵ {item.price.toFixed(2)}
-                        </span>
+                        <dl className="flex flex-col gap-2">
+                          {item.servings.map((row) => (
+                            <div
+                              key={`${item.id}-${row.size}`}
+                              className="flex items-center justify-between gap-4 rounded-xl border border-white/5 bg-[var(--surface-dark)]/40 px-3 py-2.5"
+                            >
+                              <dt className="text-sm font-medium text-[var(--foreground)]">{row.size}</dt>
+                              <dd className="tabular-nums text-base font-semibold text-[var(--accent-bright)]">
+                                {fmtGHS(row.price)}
+                              </dd>
+                            </div>
+                          ))}
+                        </dl>
                       </div>
                     </li>
                   ))}
@@ -452,10 +514,10 @@ export default function Home() {
                     <h3 className="font-semibold text-lg text-[var(--foreground)]">Opening hours</h3>
                     <div className="mt-2 flex flex-col gap-2 font-medium text-white/90">
                       <p className="bg-white/5 border border-white/10 px-3 py-1.5 rounded-lg inline-block text-sm">
-                        Mon - Sat: 9:00 AM - 8:30 PM
+                        Mon - Sat: 11:00 AM - 8:00 PM
                       </p>
-                      <p className="bg-white/5 border border-white/10 px-3 py-1.5 rounded-lg inline-block text-sm">
-                        Sunday: 12:00 PM - 8:00 PM
+                      <p className="bg-white/5 border border-white/10 px-3 py-1.5 rounded-lg inline-block text-sm text-[var(--muted)]">
+                        Sunday: Closed
                       </p>
                     </div>
                   </div>
@@ -514,27 +576,38 @@ export default function Home() {
                   <div className="h-[1px] flex-1 bg-white/10" />
                 </div>
 
-                <div className="flex flex-wrap items-center justify-center gap-6">
+                <div className="flex flex-wrap items-center justify-center gap-4 sm:gap-6">
                   <a
                     href={PHONE_TEL}
                     className="p-3 rounded-full bg-white/5 hover:bg-white/10 transition-colors border border-white/10 group"
-                    title={PHONE_DISPLAY}
+                    title={`Call ${PHONE_DISPLAY}`}
                   >
                     <Phone className="w-6 h-6 text-[var(--accent-bright)] group-hover:scale-110 transition-transform" />
                   </a>
                   <a
-                    href={EMAIL}
+                    href={WHATSAPP}
+                    target="_blank"
+                    rel="noopener noreferrer"
                     className="p-3 rounded-full bg-white/5 hover:bg-white/10 transition-colors border border-white/10 group"
-                    title="Email Us"
+                    title="WhatsApp"
                   >
-                    <Mail className="w-6 h-6 text-white group-hover:scale-110 transition-transform" />
+                    <MessageCircle className="w-6 h-6 text-[var(--accent-bright)] group-hover:scale-110 transition-transform" />
+                  </a>
+                  <a
+                    href={TIKTOK}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="p-3 rounded-full bg-white/5 hover:bg-white/10 transition-colors border border-white/10 group"
+                    title={`TikTok @${SOCIAL_HANDLE}`}
+                  >
+                    <TikTok className="w-6 h-6 text-white group-hover:scale-110 transition-transform" />
                   </a>
                   <a
                     href={FACEBOOK}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="p-3 rounded-full bg-white/5 hover:bg-white/10 transition-colors border border-white/10 group"
-                    title="Facebook"
+                    title={`Facebook @${SOCIAL_HANDLE}`}
                   >
                     <Facebook className="w-6 h-6 text-white group-hover:scale-110 transition-transform" />
                   </a>
@@ -543,18 +616,9 @@ export default function Home() {
                     target="_blank"
                     rel="noopener noreferrer"
                     className="p-3 rounded-full bg-white/5 hover:bg-white/10 transition-colors border border-white/10 group"
-                    title="Instagram"
+                    title={`Instagram @${SOCIAL_HANDLE}`}
                   >
                     <Instagram className="w-6 h-6 text-white group-hover:scale-110 transition-transform" />
-                  </a>
-                  <a
-                    href={YOUTUBE}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="p-3 rounded-full bg-white/5 hover:bg-white/10 transition-colors border border-white/10 group"
-                    title="YouTube"
-                  >
-                    <Youtube className="w-6 h-6 text-white group-hover:scale-110 transition-transform" />
                   </a>
                 </div>
               </div>
@@ -571,17 +635,17 @@ export default function Home() {
               Authentic Ghanaian dining with grilled specials, wholesome juices, and a commitment to zero monosodium foods.
             </p>
             <div className="mt-6 flex flex-wrap gap-4">
-              <a href={WHATSAPP} target="_blank" rel="noopener noreferrer" className="p-2 rounded-full bg-white/5 text-[var(--muted)] hover:bg-[var(--accent)] hover:text-white transition-colors">
+              <a href={WHATSAPP} target="_blank" rel="noopener noreferrer" className="p-2 rounded-full bg-white/5 text-[var(--muted)] hover:bg-[var(--accent)] hover:text-white transition-colors" title="WhatsApp">
                 <MessageCircle className="w-5 h-5" />
               </a>
-              <a href={FACEBOOK} target="_blank" rel="noopener noreferrer" className="p-2 rounded-full bg-white/5 text-[var(--muted)] hover:bg-[#1877F2] hover:text-white transition-colors">
+              <a href={TIKTOK} target="_blank" rel="noopener noreferrer" className="p-2 rounded-full bg-white/5 text-[var(--muted)] hover:bg-black hover:text-[#fe2c55] transition-colors" title={`TikTok @${SOCIAL_HANDLE}`}>
+                <TikTok className="w-5 h-5" />
+              </a>
+              <a href={FACEBOOK} target="_blank" rel="noopener noreferrer" className="p-2 rounded-full bg-white/5 text-[var(--muted)] hover:bg-[#1877F2] hover:text-white transition-colors" title={`Facebook @${SOCIAL_HANDLE}`}>
                 <Facebook className="w-5 h-5" />
               </a>
-              <a href={INSTAGRAM} target="_blank" rel="noopener noreferrer" className="p-2 rounded-full bg-white/5 text-[var(--muted)] hover:bg-[#E4405F] hover:text-white transition-colors">
+              <a href={INSTAGRAM} target="_blank" rel="noopener noreferrer" className="p-2 rounded-full bg-white/5 text-[var(--muted)] hover:bg-[#E4405F] hover:text-white transition-colors" title={`Instagram @${SOCIAL_HANDLE}`}>
                 <Instagram className="w-5 h-5" />
-              </a>
-              <a href={YOUTUBE} target="_blank" rel="noopener noreferrer" className="p-2 rounded-full bg-white/5 text-[var(--muted)] hover:bg-[#FF0000] hover:text-white transition-colors">
-                <Youtube className="w-5 h-5" />
               </a>
             </div>
           </div>
@@ -592,8 +656,8 @@ export default function Home() {
             </div>
             <div>
               <h4 className="font-semibold text-[var(--foreground)] mt-4 mb-4">Hours</h4>
-              <p className="text-sm text-[var(--muted)]">Mon - Sat: 9:00 AM - 8:30 PM</p>
-              <p className="text-sm text-[var(--muted)]">Sunday: 12:00 PM - 8:00 PM</p>
+              <p className="text-sm text-[var(--muted)]">Mon - Sat: 11:00 AM - 8:00 PM</p>
+              <p className="text-sm text-[var(--muted)]">Sunday: Closed</p>
             </div>
           </div>
         </div>
@@ -627,8 +691,8 @@ const Instagram = ({ className }: { className?: string }) => (
   </svg>
 );
 
-const Youtube = ({ className }: { className?: string }) => (
+const TikTok = ({ className }: { className?: string }) => (
   <svg className={className} fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-    <path fillRule="evenodd" d="M19.812 5.418c.861.23 1.538.907 1.768 1.768C21.998 8.746 22 12 22 12s0 3.255-.418 4.814a2.504 2.504 0 0 1-1.768 1.768c-1.56.419-7.814.419-7.814.419s-6.255 0-7.814-.419a2.505 2.505 0 0 1-1.768-1.768C2 15.255 2 12 2 12s0-3.255.417-4.814a2.507 2.507 0 0 1 1.768-1.768C5.744 5 11.998 5 11.998 5s6.255 0 7.814.418ZM15.194 12 10 15V9l5.194 3Z" clipRule="evenodd" />
+    <path d="M19.59 6.69a4.83 4.83 0 0 1-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 1 1-5.2-1.74 2.89 2.89 0 0 1 2.31-2.83V9.16a6.34 6.34 0 1 0 4.87 6.17V8.54a8.16 8.16 0 0 0 4.77 1.52v-3.4a4.85 4.85 0 0 1-1-.97z" />
   </svg>
 );
