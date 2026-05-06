@@ -6,7 +6,8 @@ import { signOut } from 'next-auth/react';
 import {
   LayoutDashboard, ShoppingBag, UtensilsCrossed, Package,
   Receipt, Users, DollarSign, BarChart3, Settings,
-  Monitor, LogOut, Leaf, ChevronRight, X,
+  Monitor, LogOut, Leaf, ChevronRight, X, FlaskConical,
+  Truck, ShoppingCart,
 } from 'lucide-react';
 import { UserRole } from '@prisma/client';
 
@@ -18,16 +19,39 @@ interface NavItem {
   badge?: number;
 }
 
-const NAV_ITEMS: NavItem[] = [
-  { href: '/admin', label: 'Dashboard', icon: <LayoutDashboard size={18} />, roles: ['OWNER', 'MANAGER', 'ACCOUNTANT'] },
-  { href: '/admin/orders', label: 'Orders', icon: <ShoppingBag size={18} />, roles: ['OWNER', 'MANAGER', 'CASHIER', 'ACCOUNTANT'] },
-  { href: '/admin/menu', label: 'Menu', icon: <UtensilsCrossed size={18} />, roles: ['OWNER', 'MANAGER'] },
-  { href: '/admin/inventory', label: 'Inventory', icon: <Package size={18} />, roles: ['OWNER', 'MANAGER'] },
-  { href: '/admin/expenses', label: 'Expenses', icon: <Receipt size={18} />, roles: ['OWNER', 'MANAGER', 'ACCOUNTANT'] },
-  { href: '/admin/staff', label: 'Staff', icon: <Users size={18} />, roles: ['OWNER', 'MANAGER'] },
-  { href: '/admin/payroll', label: 'Payroll', icon: <DollarSign size={18} />, roles: ['OWNER', 'ACCOUNTANT'] },
-  { href: '/admin/reports', label: 'Reports', icon: <BarChart3 size={18} />, roles: ['OWNER', 'MANAGER', 'ACCOUNTANT'] },
-  { href: '/admin/settings', label: 'Settings', icon: <Settings size={18} />, roles: ['OWNER'] },
+interface NavSection {
+  label: string;
+  items: NavItem[];
+}
+
+const NAV_SECTIONS: NavSection[] = [
+  {
+    label: 'Operations',
+    items: [
+      { href: '/admin', label: 'Dashboard', icon: <LayoutDashboard size={17} />, roles: ['OWNER', 'MANAGER', 'ACCOUNTANT'] },
+      { href: '/admin/orders', label: 'Orders', icon: <ShoppingBag size={17} />, roles: ['OWNER', 'MANAGER', 'CASHIER', 'ACCOUNTANT'] },
+      { href: '/admin/menu', label: 'Menu', icon: <UtensilsCrossed size={17} />, roles: ['OWNER', 'MANAGER'] },
+    ],
+  },
+  {
+    label: 'Stock & Supply',
+    items: [
+      { href: '/admin/inventory', label: 'Inventory', icon: <Package size={17} />, roles: ['OWNER', 'MANAGER'] },
+      { href: '/admin/boms', label: 'Recipes (BOMs)', icon: <FlaskConical size={17} />, roles: ['OWNER', 'MANAGER'] },
+      { href: '/admin/suppliers', label: 'Suppliers', icon: <Truck size={17} />, roles: ['OWNER', 'MANAGER'] },
+      { href: '/admin/purchasing', label: 'Purchasing', icon: <ShoppingCart size={17} />, roles: ['OWNER', 'MANAGER'] },
+    ],
+  },
+  {
+    label: 'Finance',
+    items: [
+      { href: '/admin/expenses', label: 'Expenses', icon: <Receipt size={17} />, roles: ['OWNER', 'MANAGER', 'ACCOUNTANT'] },
+      { href: '/admin/staff', label: 'Staff', icon: <Users size={17} />, roles: ['OWNER', 'MANAGER'] },
+      { href: '/admin/payroll', label: 'Payroll', icon: <DollarSign size={17} />, roles: ['OWNER', 'ACCOUNTANT'] },
+      { href: '/admin/reports', label: 'Reports', icon: <BarChart3 size={17} />, roles: ['OWNER', 'MANAGER', 'ACCOUNTANT'] },
+      { href: '/admin/settings', label: 'Settings', icon: <Settings size={17} />, roles: ['OWNER'] },
+    ],
+  },
 ];
 
 interface SidebarProps {
@@ -38,10 +62,6 @@ interface SidebarProps {
 
 export function Sidebar({ user, onClose, mobile = false }: SidebarProps) {
   const pathname = usePathname();
-
-  const visibleItems = NAV_ITEMS.filter(item =>
-    item.roles.includes(user.role)
-  );
 
   const isActive = (href: string) =>
     href === '/admin' ? pathname === '/admin' : pathname.startsWith(href);
@@ -82,33 +102,43 @@ export function Sidebar({ user, onClose, mobile = false }: SidebarProps) {
       </div>
 
       {/* Nav */}
-      <nav className="flex-1 overflow-y-auto px-3 py-3 space-y-0.5">
-        <p className="px-3 py-2 text-[10px] font-semibold text-[#aba8a4]/60 uppercase tracking-widest">
-          Management
-        </p>
-        {visibleItems.map((item) => (
-          <Link
-            key={item.href}
-            href={item.href}
-            onClick={onClose}
-            className={[
-              'flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all',
-              isActive(item.href)
-                ? 'bg-[#349f2d]/20 text-[#5ecf4f] border border-[#349f2d]/40'
-                : 'text-[#aba8a4] hover:text-[#f4efeb] hover:bg-white/5 border border-transparent',
-            ].join(' ')}
-          >
-            <span className={isActive(item.href) ? 'text-[#5ecf4f]' : 'text-[#aba8a4]'}>
-              {item.icon}
-            </span>
-            {item.label}
-            {item.badge !== undefined && item.badge > 0 && (
-              <span className="ml-auto bg-[#349f2d] text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center">
-                {item.badge}
-              </span>
-            )}
-          </Link>
-        ))}
+      <nav className="flex-1 overflow-y-auto px-3 py-3 space-y-4">
+        {NAV_SECTIONS.map(section => {
+          const visibleItems = section.items.filter(item => item.roles.includes(user.role));
+          if (visibleItems.length === 0) return null;
+          return (
+            <div key={section.label}>
+              <p className="px-3 pb-1.5 text-[10px] font-semibold text-[#aba8a4]/50 uppercase tracking-widest">
+                {section.label}
+              </p>
+              <div className="space-y-0.5">
+                {visibleItems.map(item => (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    onClick={onClose}
+                    className={[
+                      'flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all',
+                      isActive(item.href)
+                        ? 'bg-[#349f2d]/20 text-[#5ecf4f] border border-[#349f2d]/40'
+                        : 'text-[#aba8a4] hover:text-[#f4efeb] hover:bg-white/5 border border-transparent',
+                    ].join(' ')}
+                  >
+                    <span className={isActive(item.href) ? 'text-[#5ecf4f]' : 'text-[#aba8a4]'}>
+                      {item.icon}
+                    </span>
+                    {item.label}
+                    {item.badge !== undefined && item.badge > 0 && (
+                      <span className="ml-auto bg-[#349f2d] text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center">
+                        {item.badge}
+                      </span>
+                    )}
+                  </Link>
+                ))}
+              </div>
+            </div>
+          );
+        })}
       </nav>
 
       {/* User */}

@@ -13,10 +13,10 @@ export async function GET(req: NextRequest) {
   const start = startOfMonth(new Date(year, m - 1));
   const end = endOfMonth(new Date(year, m - 1));
 
-  const [orders, expenses, payroll] = await Promise.all([
+  const [orders, expenses, payroll, sessions] = await Promise.all([
     prisma.order.findMany({
       where: { createdAt: { gte: start, lte: end }, status: { not: 'CANCELLED' } },
-      include: { items: { include: { menuItem: { select: { costPrice: true } } } } },
+      include: { items: { include: { menuItem: { select: { costPrice: true, name: true } } } } },
     }),
     prisma.expense.findMany({
       where: { date: { gte: start, lte: end } },
@@ -25,6 +25,14 @@ export async function GET(req: NextRequest) {
     prisma.payrollRecord.findMany({
       where: { periodStart: { gte: start, lte: end }, status: { not: 'DRAFT' } },
       include: { user: { select: { name: true } } },
+    }),
+    prisma.posSession.findMany({
+      where: { openedAt: { gte: start, lte: end } },
+      include: {
+        openedByUser: { select: { name: true } },
+        closedByUser: { select: { name: true } },
+      },
+      orderBy: { openedAt: 'desc' },
     }),
   ]);
 
@@ -73,6 +81,53 @@ export async function GET(req: NextRequest) {
     return acc;
   }, {});
 
+  // Top items by quantity and revenue
+  const itemMap: Record<string, { name: string; qty: number; revenue: number }> = {};
+  for (const order of orders) {
+    for (const item of order.items) {
+      const name = item.menuItem?.name ?? 'Unknown';
+      if (!itemMap[name]) itemMap[name] = { name, qty: 0, revenue: 0 };
+      itemMap[name].qty += item.quantity;
+      itemMap[name].revenue += item.quantity * Number((item as any).unitPrice ?? 0);
+    }
+  }
+  const topItems = Object.values(itemMap)
+    .sort((a, b) => b.revenue - a.revenue)
+    .slice(0, 8);
+
+  // Sessions with summary
+  const sessionData = sessions.map(s => {
+    const sessionOrders = orders.filter(o => (o as any).sessionId === s.id);
+    const sessionRevenue = sessionOrders.reduce((sum, o) => sum + Number(o.total), 0);
+    const cashRevenue = sessionOrders
+      .filter(o => o.paymentMethod === 'CASH')
+      .reduce((sum, o) => sum + Number(o.total), 0);
+    const expectedCash = Number(s.openingFloat) + cashRevenue;
+    const closingCash = s.closingCash ? Number(s.closingCash) : null;
+    const discrepancy = closingCash !== null ? closingCash - expectedCash : null;
+    const durationMs = s.closedAt
+      ? new Date(s.closedAt).getTime() - new Date(s.openedAt).getTime()
+      : null;
+    const durationHours = durationMs ? durationMs / 1000 / 60 / 60 : null;
+
+    return {
+      id: s.id,
+      openedAt: s.openedAt,
+      closedAt: s.closedAt,
+      status: s.status,
+      openedBy: s.openedByUser?.name ?? '—',
+      closedBy: s.closedByUser?.name,
+      openingFloat: Number(s.openingFloat),
+      closingCash,
+      sessionRevenue,
+      cashRevenue,
+      expectedCash,
+      discrepancy,
+      orderCount: sessionOrders.length,
+      durationHours,
+    };
+  });
+
   return NextResponse.json({
     period: { start: start.toISOString(), end: end.toISOString(), month },
     summary: {
@@ -88,6 +143,8 @@ export async function GET(req: NextRequest) {
     expenseByCategory,
     paymentBreakdown,
     dailySales,
+    topItems,
+    sessions: sessionData,
     payrollRecords: payroll,
   });
 }

@@ -3,9 +3,11 @@ generator client {
 }
 
 datasource db {
-  provider  = "postgresql"
-  url       = env("DATABASE_URL")
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
 }
+
+// ─── Enums ────────────────────────────────────────────────────────────────────
 
 enum UserRole {
   OWNER
@@ -63,21 +65,39 @@ enum SalaryType {
   HOURLY
 }
 
-model User {
-  id                  String         @id @default(cuid())
-  name                String
-  email               String         @unique
-  password            String
-  role                UserRole       @default(CASHIER)
-  isActive            Boolean        @default(true)
-  passwordResetRequired Boolean      @default(false)
-  createdAt           DateTime       @default(now())
-  updatedAt           DateTime       @updatedAt
+enum SessionStatus {
+  OPEN
+  CLOSED
+}
 
-  staffProfile        StaffProfile?
-  orders              Order[]
-  auditLogs           AuditLog[]
-  payrollRecords      PayrollRecord[]
+enum PoStatus {
+  DRAFT
+  CONFIRMED
+  PARTIALLY_RECEIVED
+  RECEIVED
+}
+
+// ─── Users & Profiles ─────────────────────────────────────────────────────────
+
+model User {
+  id                    String          @id @default(cuid())
+  name                  String
+  email                 String          @unique
+  password              String
+  role                  UserRole        @default(CASHIER)
+  isActive              Boolean         @default(true)
+  passwordResetRequired Boolean         @default(false)
+  createdAt             DateTime        @default(now())
+  updatedAt             DateTime        @updatedAt
+
+  staffProfile          StaffProfile?
+  orders                Order[]
+  auditLogs             AuditLog[]
+  payrollRecords        PayrollRecord[]
+  openedSessions        PosSession[]    @relation("OpenedSessions")
+  closedSessions        PosSession[]    @relation("ClosedSessions")
+  createdPOs            PurchaseOrder[] @relation("CreatedPOs")
+  receivedPOs           PoReceipt[]     @relation("ReceivedPOs")
 }
 
 model StaffProfile {
@@ -95,6 +115,26 @@ model StaffProfile {
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
 }
+
+// ─── POS Sessions ─────────────────────────────────────────────────────────────
+
+model PosSession {
+  id           String        @id @default(cuid())
+  openedBy     String
+  openedByUser User          @relation("OpenedSessions", fields: [openedBy], references: [id])
+  closedBy     String?
+  closedByUser User?         @relation("ClosedSessions", fields: [closedBy], references: [id])
+  openedAt     DateTime      @default(now())
+  closedAt     DateTime?
+  openingFloat Decimal       @db.Decimal(10, 2)
+  closingCash  Decimal?      @db.Decimal(10, 2)
+  status       SessionStatus @default(OPEN)
+  notes        String?
+
+  orders       Order[]
+}
+
+// ─── Menu ─────────────────────────────────────────────────────────────────────
 
 model MenuCategory {
   id        String     @id @default(cuid())
@@ -125,18 +165,28 @@ model MenuItem {
   updatedAt   DateTime     @updatedAt
 
   orderItems  OrderItem[]
+  bom         Bom?
 }
+
+// ─── Orders ───────────────────────────────────────────────────────────────────
 
 model Order {
   id              String        @id @default(cuid())
   orderNumber     String        @unique
+  sessionId       String?
+  session         PosSession?   @relation(fields: [sessionId], references: [id])
   status          OrderStatus   @default(PENDING)
   source          OrderSource   @default(POS)
   deliveryType    DeliveryType  @default(DINE_IN)
   paymentMethod   PaymentMethod @default(CASH)
   paymentStatus   String        @default("PENDING")
+  paymentRef      String?
   subtotal        Decimal       @db.Decimal(10, 2)
+  discountAmount  Decimal       @default(0) @db.Decimal(10, 2)
+  taxAmount       Decimal       @default(0) @db.Decimal(10, 2)
   total           Decimal       @db.Decimal(10, 2)
+  tenderedAmount  Decimal?      @db.Decimal(10, 2)
+  changeAmount    Decimal?      @db.Decimal(10, 2)
   notes           String?
   customerName    String?
   customerPhone   String?
@@ -163,34 +213,143 @@ model OrderItem {
   createdAt  DateTime @default(now())
 }
 
+// ─── Inventory ────────────────────────────────────────────────────────────────
+
 model InventoryItem {
-  id             String   @id @default(cuid())
-  name           String
-  unit           String
-  quantity       Decimal  @db.Decimal(10, 3)
-  lowStockThreshold Decimal @db.Decimal(10, 3)
-  costPerUnit    Decimal? @db.Decimal(10, 2)
-  supplier       String?
-  notes          String?
-  isActive       Boolean  @default(true)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  id                String   @id @default(cuid())
+  name              String
+  unit              String
+  purchaseUnit      String?
+  conversionFactor  Decimal  @default(1) @db.Decimal(10, 3)
+  quantity          Decimal  @db.Decimal(10, 3)
+  lowStockThreshold Decimal  @db.Decimal(10, 3)
+  costPerUnit       Decimal? @db.Decimal(10, 2)
+  supplier          String?
+  notes             String?
+  isActive          Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 
   transactions   InventoryTransaction[]
+  bomLines       BomLine[]
+  poLines        PoLine[]
+  poReceiptLines PoReceiptLine[]
 }
 
 model InventoryTransaction {
-  id          String                   @id @default(cuid())
-  itemId      String
-  item        InventoryItem            @relation(fields: [itemId], references: [id])
-  type        InventoryTransactionType
-  quantity    Decimal                  @db.Decimal(10, 3)
-  unitCost    Decimal?                 @db.Decimal(10, 2)
-  totalCost   Decimal?                 @db.Decimal(10, 2)
-  notes       String?
-  reference   String?
-  createdAt   DateTime                 @default(now())
+  id        String                   @id @default(cuid())
+  itemId    String
+  item      InventoryItem            @relation(fields: [itemId], references: [id])
+  type      InventoryTransactionType
+  quantity  Decimal                  @db.Decimal(10, 3)
+  unitCost  Decimal?                 @db.Decimal(10, 2)
+  totalCost Decimal?                 @db.Decimal(10, 2)
+  notes     String?
+  reference String?
+  createdAt DateTime                 @default(now())
 }
+
+// ─── BOM (Recipe Engine) ──────────────────────────────────────────────────────
+
+model Bom {
+  id         String    @id @default(cuid())
+  menuItemId String    @unique
+  menuItem   MenuItem  @relation(fields: [menuItemId], references: [id])
+  notes      String?
+  isActive   Boolean   @default(true)
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  lines      BomLine[]
+}
+
+model BomLine {
+  id              String        @id @default(cuid())
+  bomId           String
+  bom             Bom           @relation(fields: [bomId], references: [id], onDelete: Cascade)
+  inventoryItemId String
+  inventoryItem   InventoryItem @relation(fields: [inventoryItemId], references: [id])
+  quantity        Decimal       @db.Decimal(10, 3)
+  unit            String
+  createdAt       DateTime      @default(now())
+}
+
+// ─── Suppliers & Purchasing ───────────────────────────────────────────────────
+
+model Supplier {
+  id            String          @id @default(cuid())
+  name          String
+  contactPerson String?
+  phone         String?
+  email         String?
+  address       String?
+  notes         String?
+  isActive      Boolean         @default(true)
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+
+  purchaseOrders PurchaseOrder[]
+}
+
+model PurchaseOrder {
+  id           String    @id @default(cuid())
+  poNumber     String    @unique
+  supplierId   String
+  supplier     Supplier  @relation(fields: [supplierId], references: [id])
+  status       PoStatus  @default(DRAFT)
+  expectedDate DateTime?
+  totalAmount  Decimal?  @db.Decimal(10, 2)
+  notes        String?
+  createdById  String
+  createdBy    User      @relation("CreatedPOs", fields: [createdById], references: [id])
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  lines    PoLine[]
+  receipts PoReceipt[]
+}
+
+model PoLine {
+  id              String        @id @default(cuid())
+  poId            String
+  po              PurchaseOrder @relation(fields: [poId], references: [id], onDelete: Cascade)
+  inventoryItemId String
+  inventoryItem   InventoryItem @relation(fields: [inventoryItemId], references: [id])
+  orderedQty      Decimal       @db.Decimal(10, 3)
+  receivedQty     Decimal       @default(0) @db.Decimal(10, 3)
+  purchaseUnit    String
+  unitPrice       Decimal       @db.Decimal(10, 2)
+  createdAt       DateTime      @default(now())
+
+  receiptLines PoReceiptLine[]
+}
+
+model PoReceipt {
+  id           String        @id @default(cuid())
+  poId         String
+  po           PurchaseOrder @relation(fields: [poId], references: [id])
+  receivedById String
+  receivedBy   User          @relation("ReceivedPOs", fields: [receivedById], references: [id])
+  receivedAt   DateTime      @default(now())
+  notes        String?
+
+  lines PoReceiptLine[]
+}
+
+model PoReceiptLine {
+  id              String        @id @default(cuid())
+  receiptId       String
+  receipt         PoReceipt     @relation(fields: [receiptId], references: [id], onDelete: Cascade)
+  poLineId        String
+  poLine          PoLine        @relation(fields: [poLineId], references: [id])
+  inventoryItemId String
+  inventoryItem   InventoryItem @relation(fields: [inventoryItemId], references: [id])
+  qtyReceived     Decimal       @db.Decimal(10, 3)
+  purchaseUnit    String
+  createdAt       DateTime      @default(now())
+}
+
+// ─── Expenses ─────────────────────────────────────────────────────────────────
 
 model ExpenseCategory {
   id        String    @id @default(cuid())
@@ -198,60 +357,66 @@ model ExpenseCategory {
   isActive  Boolean   @default(true)
   createdAt DateTime  @default(now())
 
-  expenses  Expense[]
+  expenses Expense[]
 }
 
 model Expense {
-  id          String          @id @default(cuid())
-  categoryId  String
-  category    ExpenseCategory @relation(fields: [categoryId], references: [id])
-  description String
-  amount      Decimal         @db.Decimal(10, 2)
-  paymentMethod PaymentMethod @default(CASH)
-  receiptUrl  String?
-  date        DateTime        @default(now())
-  notes       String?
-  createdAt   DateTime        @default(now())
-  updatedAt   DateTime        @updatedAt
+  id            String          @id @default(cuid())
+  categoryId    String
+  category      ExpenseCategory @relation(fields: [categoryId], references: [id])
+  description   String
+  amount        Decimal         @db.Decimal(10, 2)
+  paymentMethod PaymentMethod   @default(CASH)
+  receiptUrl    String?
+  date          DateTime        @default(now())
+  notes         String?
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
 }
+
+// ─── Finance ──────────────────────────────────────────────────────────────────
 
 model Deposit {
-  id          String   @id @default(cuid())
-  amount      Decimal  @db.Decimal(10, 2)
-  bankName    String
-  reference   String?
-  date        DateTime @default(now())
-  notes       String?
-  createdAt   DateTime @default(now())
+  id        String   @id @default(cuid())
+  amount    Decimal  @db.Decimal(10, 2)
+  bankName  String
+  reference String?
+  date      DateTime @default(now())
+  notes     String?
+  createdAt DateTime @default(now())
 }
+
+// ─── Payroll ──────────────────────────────────────────────────────────────────
 
 model PayrollRecord {
-  id           String        @id @default(cuid())
-  userId       String
-  user         User          @relation(fields: [userId], references: [id])
-  periodStart  DateTime
-  periodEnd    DateTime
-  baseSalary   Decimal       @db.Decimal(10, 2)
-  bonus        Decimal       @default(0) @db.Decimal(10, 2)
-  deductions   Decimal       @default(0) @db.Decimal(10, 2)
-  netPay       Decimal       @db.Decimal(10, 2)
-  status       PayrollStatus @default(DRAFT)
-  notes        String?
-  paidAt       DateTime?
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
+  id          String        @id @default(cuid())
+  userId      String
+  user        User          @relation(fields: [userId], references: [id])
+  periodStart DateTime
+  periodEnd   DateTime
+  baseSalary  Decimal       @db.Decimal(10, 2)
+  bonus       Decimal       @default(0) @db.Decimal(10, 2)
+  deductions  Decimal       @default(0) @db.Decimal(10, 2)
+  netPay      Decimal       @db.Decimal(10, 2)
+  status      PayrollStatus @default(DRAFT)
+  notes       String?
+  paidAt      DateTime?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
 }
 
+// ─── System ───────────────────────────────────────────────────────────────────
+
 model AuditLog {
-  id         String   @id @default(cuid())
-  userId     String?
-  user       User?    @relation(fields: [userId], references: [id])
-  action     String
-  entity     String
-  entityId   String?
-  details    Json?
-  ipAddress  String?
-  createdAt  DateTime @default(now())
+  id        String   @id @default(cuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id])
+  action    String
+  entity    String
+  entityId  String?
+  details   Json?
+  ipAddress String?
+  createdAt DateTime @default(now())
 }
 
 model Settings {
