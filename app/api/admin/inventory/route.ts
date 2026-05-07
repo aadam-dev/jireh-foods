@@ -6,11 +6,13 @@ import { z } from 'zod';
 const itemSchema = z.object({
   name: z.string().min(1),
   unit: z.string().min(1),
-  quantity: z.number().min(0),
-  lowStockThreshold: z.number().min(0),
-  costPerUnit: z.number().optional(),
+  quantity: z.coerce.number().min(0),
+  lowStockThreshold: z.coerce.number().min(0),
+  costPerUnit: z.coerce.number().optional(),
   supplier: z.string().optional(),
   notes: z.string().optional(),
+  purchaseUnit: z.string().optional(),
+  conversionFactor: z.coerce.number().min(0.001).default(1),
 });
 
 const txSchema = z.object({
@@ -22,16 +24,30 @@ const txSchema = z.object({
   reference: z.string().optional(),
 });
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   const session = await auth();
   if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
+  const { searchParams } = new URL(req.url);
+  const id = searchParams.get('id');
+  const withTransactions = searchParams.get('transactions') === '1';
+
+  // Single item with full transaction history
+  if (id && withTransactions) {
+    const item = await prisma.inventoryItem.findUnique({
+      where: { id },
+      include: {
+        transactions: { orderBy: { createdAt: 'desc' }, take: 100 },
+      },
+    });
+    if (!item) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+    return NextResponse.json({ item, transactions: item.transactions });
+  }
+
+  // All items list
   const items = await prisma.inventoryItem.findMany({
     where: { isActive: true },
     orderBy: { name: 'asc' },
-    include: {
-      transactions: { orderBy: { createdAt: 'desc' }, take: 5 },
-    },
   });
   return NextResponse.json(items);
 }

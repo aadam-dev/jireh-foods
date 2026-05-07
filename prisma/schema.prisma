@@ -35,6 +35,7 @@ enum OrderSource {
 enum PaymentMethod {
   CASH
   MOMO
+  BOLT_FOOD
   CARD
   BANK_TRANSFER
   UNPAID

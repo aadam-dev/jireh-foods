@@ -27,7 +27,7 @@ interface DashboardData {
 }
 
 const PAYMENT_COLORS: Record<string, string> = {
-  CASH: '#5ecf4f', MOMO: '#60a5fa', CARD: '#f59e0b', BANK_TRANSFER: '#a78bfa', UNPAID: '#6b7280',
+  CASH: '#5ecf4f', MOMO: '#f59e0b', BOLT_FOOD: '#60a5fa', CARD: '#a78bfa', BANK_TRANSFER: '#c084fc', UNPAID: '#6b7280',
 };
 
 function StatCard({ title, value, sub, trend, icon, iconBg = 'bg-[#349f2d]/20' }: {

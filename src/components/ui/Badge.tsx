@@ -61,7 +61,8 @@ export function PaymentBadge({ method }: { method: string }) {
   const map: Record<string, { label: string; variant: BadgeVariant }> = {
     CASH: { label: 'Cash', variant: 'green' },
     MOMO: { label: 'MoMo', variant: 'yellow' },
-    CARD: { label: 'Card', variant: 'blue' },
+    BOLT_FOOD: { label: 'Bolt Food', variant: 'blue' },
+    CARD: { label: 'Card', variant: 'purple' },
     BANK_TRANSFER: { label: 'Bank', variant: 'purple' },
     UNPAID: { label: 'Unpaid', variant: 'red' },
   };

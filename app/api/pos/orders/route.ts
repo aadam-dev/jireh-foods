@@ -14,7 +14,7 @@ const orderItemSchema = z.object({
 
 const createOrderSchema = z.object({
   items: z.array(orderItemSchema).min(1),
-  paymentMethod: z.enum(['CASH', 'MOMO', 'CARD', 'BANK_TRANSFER', 'UNPAID']),
+  paymentMethod: z.enum(['CASH', 'MOMO', 'BOLT_FOOD', 'CARD', 'BANK_TRANSFER', 'UNPAID']),
   deliveryType: z.enum(['DINE_IN', 'TAKEAWAY', 'DELIVERY']).default('DINE_IN'),
   paymentRef: z.string().optional(),
   tenderedAmount: z.number().optional(),
@@ -79,7 +79,7 @@ export async function POST(req: NextRequest) {
 
     // BOM deductions — deduct ingredients for each sold item
     for (const item of data.items) {
-      const bom = await tx.bom.findUnique({
+      const bom = await tx.bom.findFirst({
         where: { menuItemId: item.menuItemId, isActive: true },
         include: { lines: { include: { inventoryItem: true } } },
       });

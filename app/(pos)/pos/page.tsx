@@ -6,7 +6,7 @@ import {
   Search, ShoppingCart, Trash2, Plus, Minus, X, Leaf, LogOut,
   LayoutDashboard, ChevronRight, Banknote, Smartphone, CreditCard,
   Building2, CheckCircle2, Printer, RotateCcw, Clock, AlertCircle,
-  Lock, Unlock, Receipt, ChevronDown, Pencil,
+  Lock, Unlock, Receipt, ChevronDown, Pencil, Zap,
 } from 'lucide-react';
 import Link from 'next/link';
 import { formatCurrency, formatTime } from '@/src/lib/utils';
@@ -20,9 +20,12 @@ interface SessionStats { revenue: number; cashRevenue: number }
 const PAYMENT_METHODS = [
   { id: 'CASH', label: 'Cash', icon: Banknote },
   { id: 'MOMO', label: 'MoMo', icon: Smartphone },
-  { id: 'CARD', label: 'Card', icon: CreditCard },
-  { id: 'BANK_TRANSFER', label: 'Bank', icon: Building2 },
+  { id: 'BOLT_FOOD', label: 'Bolt Food', icon: Zap },
 ];
+const PAYMENT_LABELS: Record<string, string> = {
+  CASH: 'Cash', MOMO: 'Mobile Money', BOLT_FOOD: 'Bolt Food',
+  CARD: 'Card', BANK_TRANSFER: 'Bank Transfer', UNPAID: 'Unpaid',
+};
 const DELIVERY_TYPES = [
   { id: 'DINE_IN', label: 'Dine In' },
   { id: 'TAKEAWAY', label: 'Takeaway' },
@@ -83,7 +86,7 @@ function Receipt80mm({ order, session: posSession }: { order: any; session: PosS
         <span>TOTAL</span><span>{formatCurrency(order.total)}</span>
       </div>
       <div className="flex justify-between mt-0.5">
-        <span>Payment ({order.paymentMethod})</span>
+        <span>Payment ({PAYMENT_LABELS[order.paymentMethod] ?? order.paymentMethod})</span>
         {order.tenderedAmount && <span>Tendered: {formatCurrency(order.tenderedAmount)}</span>}
       </div>
       {order.changeAmount > 0 && (
@@ -420,14 +423,19 @@ export default function POSPage() {
             </div>
           )}
 
-          {/* Card / Bank */}
-          {(paymentMethod === 'CARD' || paymentMethod === 'BANK_TRANSFER') && (
-            <div className="bg-[#191c19] border border-[#2b2f2b] rounded-2xl p-4 space-y-2">
-              <p className="text-sm font-medium text-[#f4efeb]">Reference (optional)</p>
+          {/* Bolt Food */}
+          {paymentMethod === 'BOLT_FOOD' && (
+            <div className="bg-[#191c19] border border-[#60a5fa]/30 rounded-2xl p-4 space-y-3">
+              <div className="flex items-center gap-2">
+                <Zap size={14} className="text-[#60a5fa]" />
+                <p className="text-sm font-medium text-[#f4efeb]">Bolt Food Order Reference</p>
+              </div>
               <input value={paymentRef} onChange={e => setPaymentRef(e.target.value)}
-                placeholder="Transaction / approval code"
-                className="w-full bg-[#111311] border border-[#2b2f2b] rounded-xl px-3 py-2.5 text-sm text-[#f4efeb] placeholder:text-[#aba8a4]/50 focus:outline-none focus:border-[#349f2d] transition-colors"/>
-              <p className="text-sm font-bold text-[#5ecf4f]">Amount: {formatCurrency(total)}</p>
+                placeholder="Enter Bolt order number / reference"
+                className="w-full bg-[#111311] border border-[#2b2f2b] rounded-xl px-3 py-2.5 text-sm text-[#f4efeb] placeholder:text-[#aba8a4]/50 focus:outline-none focus:border-[#60a5fa] transition-colors"/>
+              <p className="text-xs text-[#aba8a4]">
+                Payment collected by Bolt · Amount: <strong className="text-[#60a5fa]">{formatCurrency(total)}</strong>
+              </p>
             </div>
           )}
 
@@ -554,7 +562,7 @@ export default function POSPage() {
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-semibold text-[#f4efeb]">{order.orderNumber}</p>
                 <p className="text-xs text-[#aba8a4] mt-0.5 truncate">{order.items?.map((i: any) => `${i.quantity}× ${i.name}`).join(', ')}</p>
-                <p className="text-xs text-[#aba8a4]">{formatTime(order.createdAt)} · {order.paymentMethod}</p>
+                <p className="text-xs text-[#aba8a4]">{formatTime(order.createdAt)} · {PAYMENT_LABELS[order.paymentMethod] ?? order.paymentMethod}</p>
               </div>
               <div className="text-right shrink-0">
                 <p className="text-sm font-bold text-[#5ecf4f]">{formatCurrency(order.total)}</p>
