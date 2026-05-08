@@ -32,6 +32,8 @@ const DELIVERY_TYPES = [
   { id: 'DELIVERY', label: 'Delivery' },
 ];
 
+const CART_KEY = 'jireh_pos_cart';
+
 /* ─── Numpad Component ───────────────────────────────────────────────── */
 function Numpad({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   const press = (k: string) => {
@@ -127,6 +129,7 @@ export default function POSPage() {
 
   // Session
   const [posSession, setPosSession] = useState<PosSession | null>(null);
+  const [sessionChecked, setSessionChecked] = useState(false);
   const [sessionStats, setSessionStats] = useState<SessionStats>({ revenue: 0, cashRevenue: 0 });
   const [openingFloatStr, setOpeningFloatStr] = useState('0');
   const [closingCashStr, setClosingCashStr] = useState('0');
@@ -140,6 +143,33 @@ export default function POSPage() {
   const [currentTime, setCurrentTime] = useState(new Date());
 
   useEffect(() => { const t = setInterval(() => setCurrentTime(new Date()), 1000); return () => clearInterval(t); }, []);
+
+  // Hydrate cart from localStorage on first render (client-only)
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(CART_KEY);
+      if (saved) {
+        const p = JSON.parse(saved);
+        if (Array.isArray(p.cart) && p.cart.length > 0) setCart(p.cart);
+        if (p.deliveryType) setDeliveryType(p.deliveryType);
+        if (p.customerName) setCustomerName(p.customerName);
+        if (p.customerPhone) setCustomerPhone(p.customerPhone);
+        if (p.orderNotes) setOrderNotes(p.orderNotes);
+        if (typeof p.discountAmount === 'number') setDiscountAmount(p.discountAmount);
+      }
+    } catch {}
+  }, []);
+
+  // Persist cart to localStorage whenever it changes
+  useEffect(() => {
+    try {
+      if (cart.length > 0 || customerName || customerPhone || orderNotes || discountAmount) {
+        localStorage.setItem(CART_KEY, JSON.stringify({ cart, deliveryType, customerName, customerPhone, orderNotes, discountAmount }));
+      } else {
+        localStorage.removeItem(CART_KEY);
+      }
+    } catch {}
+  }, [cart, deliveryType, customerName, customerPhone, orderNotes, discountAmount]);
 
   const fetchMenu = async () => {
     const res = await fetch('/api/pos/menu');
@@ -155,6 +185,7 @@ export default function POSPage() {
       setPosSession(data.session);
       setSessionStats({ revenue: data.revenue, cashRevenue: data.cashRevenue });
     }
+    setSessionChecked(true);
   };
 
   const fetchOrders = async () => {
@@ -177,7 +208,11 @@ export default function POSPage() {
   const updateQty = (id: string, delta: number) => setCart(prev => prev.map(c => c.menuItemId === id ? { ...c, quantity: c.quantity + delta } : c).filter(c => c.quantity > 0));
   const removeFromCart = (id: string) => setCart(prev => prev.filter(c => c.menuItemId !== id));
   const setItemNote = (id: string, note: string) => setCart(prev => prev.map(c => c.menuItemId === id ? { ...c, notes: note } : c));
-  const clearCart = () => { setCart([]); setCustomerName(''); setCustomerPhone(''); setOrderNotes(''); setDiscountAmount(0); setTenderedStr('0'); setPaymentRef(''); };
+  const clearCart = () => {
+    setCart([]); setCustomerName(''); setCustomerPhone(''); setOrderNotes('');
+    setDiscountAmount(0); setTenderedStr('0'); setPaymentRef('');
+    try { localStorage.removeItem(CART_KEY); } catch {}
+  };
 
   const subtotal = cart.reduce((s, c) => s + c.price * c.quantity, 0);
   const total = Math.max(0, subtotal - discountAmount);
@@ -346,10 +381,66 @@ export default function POSPage() {
     );
   }
 
-  /* ─── Session open screen ─────────────────────────────────────────── */
+  /* ─── Mandatory session gate ─────────────────────────────────────── */
   const canManageShift = user && ['OWNER', 'MANAGER', 'CASHIER'].includes(user.role);
-  if (!posSession && view !== 'register') {
-    // fall through to register view without session
+
+  // While session status is unknown, show a minimal loading state
+  if (!sessionChecked) {
+    return (
+      <div className="h-screen bg-[#111311] flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-10 h-10 rounded-full border-2 border-[#349f2d] border-t-transparent animate-spin mx-auto mb-3"/>
+          <p className="text-sm text-[#aba8a4]">Loading POS…</p>
+        </div>
+      </div>
+    );
+  }
+
+  // No open session and not currently in the session management view → gate
+  if (!posSession && view !== 'session') {
+    return (
+      <div className="h-screen bg-[#111311] flex flex-col overflow-hidden">
+        <header className="shrink-0 flex items-center justify-between px-4 py-3 bg-[#0a0b0a] border-b border-[#2b2f2b]">
+          <div className="flex items-center gap-2">
+            <div className="w-7 h-7 rounded-lg bg-[#349f2d]/20 border border-[#349f2d]/40 flex items-center justify-center">
+              <Leaf size={14} className="text-[#5ecf4f]"/>
+            </div>
+            <span className="text-sm font-semibold text-[#f4efeb]">Jireh POS</span>
+          </div>
+          <button onClick={() => signOut({ callbackUrl: '/login' })} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs text-[#aba8a4] border border-[#2b2f2b] hover:text-red-400 hover:border-red-500/40 transition-all">
+            <LogOut size={12}/>
+          </button>
+        </header>
+        <div className="flex-1 flex items-center justify-center p-6">
+          {canManageShift ? (
+            <div className="w-full max-w-sm bg-[#191c19] border border-[#2b2f2b] rounded-3xl p-6 space-y-5">
+              <div className="text-center">
+                <div className="w-14 h-14 rounded-2xl bg-[#349f2d]/10 border border-[#349f2d]/30 flex items-center justify-center mx-auto mb-3">
+                  <Lock size={24} className="text-[#5ecf4f]"/>
+                </div>
+                <h2 className="text-lg font-bold text-[#f4efeb] font-serif">Open Today's Shift</h2>
+                <p className="text-xs text-[#aba8a4] mt-1">A shift must be open before you can take orders.</p>
+              </div>
+              <div>
+                <p className="text-xs text-[#aba8a4] mb-2">Opening Cash Float</p>
+                <p className="text-2xl font-bold text-[#5ecf4f] font-mono text-center mb-3">{formatCurrency(parseFloat(openingFloatStr) || 0)}</p>
+                <Numpad value={openingFloatStr} onChange={setOpeningFloatStr}/>
+              </div>
+              <button onClick={openSession} disabled={sessionLoading}
+                className="w-full bg-[#349f2d] hover:bg-[#287e22] disabled:opacity-40 text-white rounded-2xl py-3.5 font-bold text-sm transition-all active:scale-[0.98] shadow-[0_0_20px_rgba(52,159,45,0.3)]">
+                {sessionLoading ? 'Opening…' : 'Open Shift & Start Selling'}
+              </button>
+            </div>
+          ) : (
+            <div className="text-center py-12">
+              <Lock size={40} className="mx-auto mb-4 text-[#2b2f2b]"/>
+              <h2 className="text-lg font-bold text-[#f4efeb] mb-2">No Active Shift</h2>
+              <p className="text-sm text-[#aba8a4]">Ask your Manager or Owner to open a shift<br/>before orders can be taken.</p>
+            </div>
+          )}
+        </div>
+      </div>
+    );
   }
 
   /* ─── Payment screen ─────────────────────────────────────────────── */

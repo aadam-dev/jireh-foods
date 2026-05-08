@@ -19,7 +19,7 @@ const createOrderSchema = z.object({
   paymentRef: z.string().optional(),
   tenderedAmount: z.number().optional(),
   discountAmount: z.number().default(0),
-  sessionId: z.string().optional(),
+  sessionId: z.string(), // required — no selling without an open shift
   customerName: z.string().optional(),
   customerPhone: z.string().optional(),
   notes: z.string().optional(),
@@ -31,6 +31,15 @@ export async function POST(req: NextRequest) {
 
   const body = await req.json();
   const data = createOrderSchema.parse(body);
+
+  // Enforce mandatory open session — no selling without an active shift
+  const posSession = await prisma.posSession.findUnique({ where: { id: data.sessionId } });
+  if (!posSession || posSession.status !== 'OPEN') {
+    return NextResponse.json(
+      { error: 'No open shift. Please open a session before placing orders.' },
+      { status: 400 }
+    );
+  }
 
   const subtotal = data.items.reduce((s, i) => s + i.price * i.quantity, 0);
   const discountAmount = data.discountAmount ?? 0;
@@ -58,7 +67,7 @@ export async function POST(req: NextRequest) {
         total,
         tenderedAmount: data.tenderedAmount ?? null,
         changeAmount: changeAmount ?? null,
-        sessionId: data.sessionId ?? null,
+        sessionId: data.sessionId,
         customerName: data.customerName,
         customerPhone: data.customerPhone,
         notes: data.notes,
