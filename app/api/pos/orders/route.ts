@@ -19,7 +19,7 @@ const createOrderSchema = z.object({
   paymentRef: z.string().optional(),
   tenderedAmount: z.number().optional(),
   discountAmount: z.number().default(0),
-  sessionId: z.string(), // required — no selling without an open shift
+  sessionId: z.string().optional(), // required for real orders; IT demo account may omit
   customerName: z.string().optional(),
   customerPhone: z.string().optional(),
   notes: z.string().optional(),
@@ -32,13 +32,25 @@ export async function POST(req: NextRequest) {
   const body = await req.json();
   const data = createOrderSchema.parse(body);
 
-  // Enforce mandatory open session — no selling without an active shift
-  const posSession = await prisma.posSession.findUnique({ where: { id: data.sessionId } });
-  if (!posSession || posSession.status !== 'OPEN') {
-    return NextResponse.json(
-      { error: 'No open shift. Please open a session before placing orders.' },
-      { status: 400 }
-    );
+  // IT admin demo account — orders are isolated from real sales data
+  const userEmail = ((session.user as any).email ?? '').toLowerCase();
+  const isItAdmin = userEmail === 'it@jireh.com';
+
+  if (!isItAdmin) {
+    // Real orders require an active open session
+    if (!data.sessionId) {
+      return NextResponse.json(
+        { error: 'No open shift. Please open a session before placing orders.' },
+        { status: 400 }
+      );
+    }
+    const posSession = await prisma.posSession.findUnique({ where: { id: data.sessionId } });
+    if (!posSession || posSession.status !== 'OPEN') {
+      return NextResponse.json(
+        { error: 'Session is closed. Please open a new shift to place orders.' },
+        { status: 400 }
+      );
+    }
   }
 
   const subtotal = data.items.reduce((s, i) => s + i.price * i.quantity, 0);
@@ -49,6 +61,7 @@ export async function POST(req: NextRequest) {
   const taxAmount = taxableAmount * taxRate;
   const total = taxableAmount + taxAmount;
   const changeAmount = data.tenderedAmount != null ? Math.max(0, data.tenderedAmount - total) : undefined;
+  const isDemo = isItAdmin; // demo orders are excluded from all revenue reporting
 
   // Run order creation + BOM deductions atomically
   const order = await prisma.$transaction(async (tx) => {
@@ -67,11 +80,12 @@ export async function POST(req: NextRequest) {
         total,
         tenderedAmount: data.tenderedAmount ?? null,
         changeAmount: changeAmount ?? null,
-        sessionId: data.sessionId,
+        sessionId: data.sessionId ?? null,
         customerName: data.customerName,
         customerPhone: data.customerPhone,
         notes: data.notes,
         staffId: session.user.id,
+        isDemo,
         items: {
           create: data.items.map(item => ({
             menuItemId: item.menuItemId,
@@ -86,29 +100,31 @@ export async function POST(req: NextRequest) {
       include: { items: true, staff: { select: { name: true } } },
     });
 
-    // BOM deductions — deduct ingredients for each sold item
-    for (const item of data.items) {
-      const bom = await tx.bom.findFirst({
-        where: { menuItemId: item.menuItemId, isActive: true },
-        include: { lines: { include: { inventoryItem: true } } },
-      });
-      if (!bom) continue;
+    // BOM deductions — skip for demo orders (no real inventory impact)
+    if (!isDemo) {
+      for (const item of data.items) {
+        const bom = await tx.bom.findFirst({
+          where: { menuItemId: item.menuItemId, isActive: true },
+          include: { lines: { include: { inventoryItem: true } } },
+        });
+        if (!bom) continue;
 
-      for (const line of bom.lines) {
-        const deductQty = Number(line.quantity) * item.quantity;
-        await tx.inventoryItem.update({
-          where: { id: line.inventoryItemId },
-          data: { quantity: { decrement: deductQty } },
-        });
-        await tx.inventoryTransaction.create({
-          data: {
-            itemId: line.inventoryItemId,
-            type: 'USAGE',
-            quantity: deductQty,
-            notes: `Auto-deducted for order ${created.orderNumber}`,
-            reference: created.id,
-          },
-        });
+        for (const line of bom.lines) {
+          const deductQty = Number(line.quantity) * item.quantity;
+          await tx.inventoryItem.update({
+            where: { id: line.inventoryItemId },
+            data: { quantity: { decrement: deductQty } },
+          });
+          await tx.inventoryTransaction.create({
+            data: {
+              itemId: line.inventoryItemId,
+              type: 'USAGE',
+              quantity: deductQty,
+              notes: `Auto-deducted for order ${created.orderNumber}`,
+              reference: created.id,
+            },
+          });
+        }
       }
     }
 

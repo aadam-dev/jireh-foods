@@ -109,6 +109,7 @@ function Receipt80mm({ order, session: posSession }: { order: any; session: PosS
 export default function POSPage() {
   const { data: authSession } = useSession();
   const user = authSession?.user as any;
+  const isItAdmin = (user?.email ?? '').toLowerCase() === 'it@jireh.com';
 
   const [categories, setCategories] = useState<MenuCategory[]>([]);
   const [activeCat, setActiveCat] = useState('');
@@ -307,6 +308,11 @@ export default function POSPage() {
             <CheckCircle2 size={28} className="text-[#5ecf4f]" />
           </div>
           <h2 className="text-xl font-bold text-[#f4efeb] font-serif mb-1">Order Complete!</h2>
+          {isItAdmin && (
+            <span className="inline-block mb-2 px-2.5 py-0.5 rounded-full bg-amber-400/15 border border-amber-400/40 text-amber-400 text-[10px] font-bold tracking-wide">
+              DEMO — not counted in sales
+            </span>
+          )}
           <p className="text-sm text-[#aba8a4] mb-2">{lastOrder.orderNumber}</p>
           <p className="text-3xl font-bold text-[#5ecf4f] mb-1">{formatCurrency(lastOrder.total)}</p>
           {lastOrder.changeAmount > 0 && (
@@ -397,7 +403,8 @@ export default function POSPage() {
   }
 
   // No open session and not currently in the session management view → gate
-  if (!posSession && view !== 'session') {
+  // IT admin bypasses this gate — they can demo without opening a real shift
+  if (!posSession && view !== 'session' && !isItAdmin) {
     return (
       <div className="h-screen bg-[#111311] flex flex-col overflow-hidden">
         <header className="shrink-0 flex items-center justify-between px-4 py-3 bg-[#0a0b0a] border-b border-[#2b2f2b]">
@@ -680,6 +687,11 @@ export default function POSPage() {
           </div>
           <span className="text-sm font-semibold text-[#f4efeb]">Jireh POS</span>
           <span className="text-xs text-[#aba8a4] hidden sm:block">· {user?.name}</span>
+          {isItAdmin && (
+            <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-400/15 border border-amber-400/40 text-amber-400 text-[10px] font-bold tracking-wide">
+              DEMO MODE
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-1.5">
           <span className="text-xs font-mono text-[#aba8a4] hidden md:block">

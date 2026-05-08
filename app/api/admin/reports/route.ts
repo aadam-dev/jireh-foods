@@ -15,7 +15,7 @@ export async function GET(req: NextRequest) {
 
   const [orders, expenses, payroll, sessions] = await Promise.all([
     prisma.order.findMany({
-      where: { createdAt: { gte: start, lte: end }, status: { not: 'CANCELLED' } },
+      where: { createdAt: { gte: start, lte: end }, status: { not: 'CANCELLED' }, isDemo: false },
       include: { items: { include: { menuItem: { select: { costPrice: true, name: true } } } } },
     }),
     prisma.expense.findMany({

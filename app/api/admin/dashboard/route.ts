@@ -15,19 +15,19 @@ export async function GET() {
   const [todayOrders, yesterdayOrders, monthOrders, recentOrders, thirtyDayOrders, activeSession, topItems, allInventory] =
     await Promise.all([
       prisma.order.findMany({
-        where: { createdAt: { gte: todayStart }, status: 'COMPLETED' },
+        where: { createdAt: { gte: todayStart }, status: 'COMPLETED', isDemo: false },
         select: { total: true, paymentMethod: true },
       }),
       prisma.order.findMany({
-        where: { createdAt: { gte: yesterdayStart, lt: todayStart }, status: 'COMPLETED' },
+        where: { createdAt: { gte: yesterdayStart, lt: todayStart }, status: 'COMPLETED', isDemo: false },
         select: { total: true },
       }),
       prisma.order.findMany({
-        where: { createdAt: { gte: monthStart }, status: 'COMPLETED' },
+        where: { createdAt: { gte: monthStart }, status: 'COMPLETED', isDemo: false },
         select: { total: true },
       }),
       prisma.order.findMany({
-        where: { createdAt: { gte: todayStart } },
+        where: { createdAt: { gte: todayStart }, isDemo: false },
         orderBy: { createdAt: 'desc' },
         take: 10,
         include: {
@@ -36,7 +36,7 @@ export async function GET() {
         },
       }),
       prisma.order.findMany({
-        where: { createdAt: { gte: thirtyDaysAgo }, status: 'COMPLETED' },
+        where: { createdAt: { gte: thirtyDaysAgo }, status: 'COMPLETED', isDemo: false },
         select: { total: true, createdAt: true },
       }),
       prisma.posSession.findFirst({
@@ -45,7 +45,7 @@ export async function GET() {
       }),
       prisma.orderItem.groupBy({
         by: ['name'],
-        where: { order: { createdAt: { gte: monthStart }, status: 'COMPLETED' } },
+        where: { order: { createdAt: { gte: monthStart }, status: 'COMPLETED', isDemo: false } },
         _sum: { quantity: true, subtotal: true },
         orderBy: { _sum: { quantity: 'desc' } },
         take: 8,

@@ -21,7 +21,7 @@ export async function GET() {
   let cashRevenue = 0;
   if (open) {
     const orders = await prisma.order.findMany({
-      where: { sessionId: open.id, status: 'COMPLETED' },
+      where: { sessionId: open.id, status: 'COMPLETED', isDemo: false },
       select: { total: true, paymentMethod: true },
     });
     revenue = orders.reduce((s, o) => s + Number(o.total), 0);
@@ -85,7 +85,7 @@ export async function PATCH(req: NextRequest) {
 
   // Compute expected cash before closing
   const orders = await prisma.order.findMany({
-    where: { sessionId, status: 'COMPLETED' },
+    where: { sessionId, status: 'COMPLETED', isDemo: false },
     select: { total: true, paymentMethod: true, paymentRef: true, tenderedAmount: true, changeAmount: true },
   });
 

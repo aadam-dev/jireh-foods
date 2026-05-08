@@ -194,6 +194,7 @@ model Order {
   customerAddress String?
   staffId         String?
   staff           User?         @relation(fields: [staffId], references: [id])
+  isDemo          Boolean       @default(false)
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
 
