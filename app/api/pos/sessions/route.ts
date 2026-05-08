@@ -39,8 +39,8 @@ export async function POST(req: NextRequest) {
   if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const user = session.user as any;
-  if (!['OWNER', 'MANAGER'].includes(user.role)) {
-    return NextResponse.json({ error: 'Only Owner/Manager can open a session' }, { status: 403 });
+  if (!['OWNER', 'MANAGER', 'CASHIER'].includes(user.role)) {
+    return NextResponse.json({ error: 'You do not have permission to manage shifts' }, { status: 403 });
   }
 
   // Check for existing open session

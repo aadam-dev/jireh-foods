@@ -205,12 +205,25 @@ export default function POSPage() {
           notes: orderNotes || undefined,
         }),
       });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert(`Order failed: ${err.error || res.statusText || 'Unknown error'}`);
+        return;
+      }
       const order = await res.json();
+      if (!order?.orderNumber) {
+        alert('Order failed: invalid response from server');
+        return;
+      }
       setLastOrder({ ...order, createdAt: new Date().toISOString() });
       clearCart();
       setView('register');
       fetchOrders();
       fetchSession();
+      // Auto-trigger print dialog after a short delay (lets the success screen render first)
+      setTimeout(() => { try { window.print(); } catch {} }, 600);
+    } catch (e: any) {
+      alert(`Order failed: ${e?.message || 'Network error'}`);
     } finally { setPlacing(false); }
   };
 
@@ -334,7 +347,7 @@ export default function POSPage() {
   }
 
   /* ─── Session open screen ─────────────────────────────────────────── */
-  const isOwnerOrManager = user && ['OWNER', 'MANAGER'].includes(user.role);
+  const canManageShift = user && ['OWNER', 'MANAGER', 'CASHIER'].includes(user.role);
   if (!posSession && view !== 'register') {
     // fall through to register view without session
   }
@@ -439,16 +452,6 @@ export default function POSPage() {
             </div>
           )}
 
-          {/* Delivery type */}
-          <div className="flex gap-1.5">
-            {DELIVERY_TYPES.map(dt => (
-              <button key={dt.id} onClick={() => setDeliveryType(dt.id)}
-                className={`flex-1 py-2 rounded-xl text-xs font-medium transition-all border ${deliveryType === dt.id ? 'bg-[#349f2d]/20 text-[#5ecf4f] border-[#349f2d]/40' : 'text-[#aba8a4] border-[#2b2f2b] hover:border-[#404540]'}`}>
-                {dt.label}
-              </button>
-            ))}
-          </div>
-
           {/* Customer */}
           <div className="grid grid-cols-2 gap-2">
             <input value={customerName} onChange={e => setCustomerName(e.target.value)} placeholder="Customer name"
@@ -497,7 +500,7 @@ export default function POSPage() {
                   </div>
                 </div>
               </div>
-              {isOwnerOrManager && (
+              {canManageShift && (
                 <div className="bg-[#191c19] border border-[#2b2f2b] rounded-2xl p-4 space-y-3">
                   <p className="text-sm font-semibold text-[#f4efeb]">Close Shift — Enter Physical Cash Count</p>
                   <div className="bg-[#111311] rounded-xl p-3">
@@ -518,7 +521,7 @@ export default function POSPage() {
             </div>
           ) : (
             /* Open session */
-            isOwnerOrManager ? (
+            canManageShift ? (
               <div className="bg-[#191c19] border border-[#2b2f2b] rounded-2xl p-4 space-y-4">
                 <div className="flex items-center gap-2 text-[#aba8a4]"><Lock size={16}/><span className="font-semibold text-sm text-[#f4efeb]">No Active Session</span></div>
                 <p className="text-xs text-[#aba8a4]">Open a new shift to start taking orders.</p>
@@ -723,15 +726,36 @@ export default function POSPage() {
 
           {/* Checkout footer */}
           <div className="shrink-0 border-t border-[#2b2f2b] p-3 space-y-2.5">
+            {/* Shift status with quick-open for cashiers */}
             {posSession ? (
-              <div className="flex items-center gap-1.5 text-[10px] text-[#5ecf4f]">
-                <Unlock size={10}/> Shift open · {posSession.openedByUser?.name}
+              <div className="flex items-center justify-between gap-1.5">
+                <div className="flex items-center gap-1.5 text-[10px] text-[#5ecf4f]">
+                  <Unlock size={10}/> Shift open · {posSession.openedByUser?.name}
+                </div>
+                <button onClick={() => setView('session')} className="text-[10px] text-[#aba8a4] hover:text-[#f4efeb] underline">
+                  Manage
+                </button>
               </div>
             ) : (
-              <div className="flex items-center gap-1.5 text-[10px] text-yellow-400">
-                <AlertCircle size={10}/> No shift open
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-1.5 text-[10px] text-yellow-400">
+                  <AlertCircle size={10}/> No shift open
+                </div>
+                <button onClick={() => setView('session')} className="text-[10px] font-semibold text-[#5ecf4f] hover:text-[#4cb33d] underline">
+                  Open Shift →
+                </button>
               </div>
             )}
+
+            {/* Delivery type — chosen at order entry, before payment */}
+            <div className="flex gap-1.5">
+              {DELIVERY_TYPES.map(dt => (
+                <button key={dt.id} onClick={() => setDeliveryType(dt.id)}
+                  className={`flex-1 py-1.5 rounded-xl text-[11px] font-medium transition-all border ${deliveryType === dt.id ? 'bg-[#349f2d]/20 text-[#5ecf4f] border-[#349f2d]/40' : 'text-[#aba8a4] border-[#2b2f2b] hover:border-[#404540]'}`}>
+                  {dt.label}
+                </button>
+              ))}
+            </div>
 
             <div className="flex justify-between items-center bg-[#191c19] rounded-xl px-4 py-2.5">
               <span className="text-xs text-[#aba8a4]">Total</span>
