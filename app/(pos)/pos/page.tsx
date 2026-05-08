@@ -62,7 +62,7 @@ function Receipt80mm({ order, session: posSession }: { order: any; session: PosS
       <div className="text-center mb-2">
         <div className="font-bold text-[14px]">JIREH NATURAL FOODS</div>
         <div>Fresh &amp; Healthy — Always</div>
-        <div>Tel: 0XX-XXX-XXXX</div>
+        <div>Tel: 055 113 3481</div>
         <div className="border-t border-dashed border-black mt-1 pt-1">
           {new Date(order.createdAt).toLocaleString('en-GH')}
         </div>

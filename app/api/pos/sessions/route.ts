@@ -71,8 +71,8 @@ export async function PATCH(req: NextRequest) {
   if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const user = session.user as any;
-  if (!['OWNER', 'MANAGER'].includes(user.role)) {
-    return NextResponse.json({ error: 'Only Owner/Manager can close a session' }, { status: 403 });
+  if (!['OWNER', 'MANAGER', 'CASHIER'].includes(user.role)) {
+    return NextResponse.json({ error: 'Only Owner, Manager or Cashier can close a session' }, { status: 403 });
   }
 
   const body = await req.json();
