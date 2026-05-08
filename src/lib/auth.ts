@@ -17,9 +17,11 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         if (!parsed.success) return null;
 
         const { email, password } = parsed.data;
+        // Normalize email to lowercase — all emails are stored lowercase
+        const normalizedEmail = email.toLowerCase();
 
         const user = await prisma.user.findUnique({
-          where: { email: email.toLowerCase() },
+          where: { email: normalizedEmail },
         });
 
         if (!user || !user.isActive) return null;

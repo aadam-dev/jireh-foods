@@ -37,7 +37,8 @@ export async function POST(req: NextRequest) {
   const body = await req.json();
   const data = createSchema.parse(body);
 
-  const existing = await prisma.user.findUnique({ where: { email: data.email } });
+  const emailLower = data.email.toLowerCase();
+  const existing = await prisma.user.findUnique({ where: { email: emailLower } });
   if (existing) return NextResponse.json({ error: 'Email already exists' }, { status: 400 });
 
   const hashed = await bcrypt.hash(data.password, 12);
@@ -45,7 +46,7 @@ export async function POST(req: NextRequest) {
   const user = await prisma.user.create({
     data: {
       name: data.name,
-      email: data.email.toLowerCase(),
+      email: emailLower,
       password: hashed,
       role: data.role as any,
       staffProfile: {
