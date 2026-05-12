@@ -107,7 +107,7 @@ function Receipt80mm({ order, session: posSession }: { order: any; session: PosS
 
 /* ─── Main Page ─────────────────────────────────────────────────────── */
 export default function POSPage() {
-  const { data: authSession } = useSession();
+  const { data: authSession, status: authStatus } = useSession();
   const user = authSession?.user as any;
   const isItAdmin = (user?.email ?? '').toLowerCase() === 'it@jireh.com';
 
@@ -388,10 +388,10 @@ export default function POSPage() {
   }
 
   /* ─── Mandatory session gate ─────────────────────────────────────── */
-  const canManageShift = user && ['OWNER', 'MANAGER', 'CASHIER'].includes(user.role);
+  const canManageShift = !!user; // all authenticated staff can open/close shifts
 
-  // While session status is unknown, show a minimal loading state
-  if (!sessionChecked) {
+  // While NextAuth or POS session is still loading, show spinner
+  if (!sessionChecked || authStatus === 'loading') {
     return (
       <div className="h-screen bg-[#111311] flex items-center justify-center">
         <div className="text-center">
@@ -731,7 +731,7 @@ export default function POSPage() {
               <div className="flex gap-1.5 overflow-x-auto pb-2 scrollbar-none">
                 {categories.map(cat => (
                   <button key={cat.id} onClick={() => setActiveCat(cat.id)}
-                    className={`shrink-0 px-3 py-1.5 rounded-xl text-xs font-medium transition-all border ${cat.id === activeCat ? 'bg-[#349f2d]/20 text-[#5ecf4f] border-[#349f2d]/40' : 'text-[#aba8a4] border-[#2b2f2b] hover:border-[#404540] hover:text-[#f4efeb]'}`}>
+                    className={`shrink-0 px-4 py-2 rounded-xl text-sm font-semibold transition-all border ${cat.id === activeCat ? 'bg-[#349f2d]/20 text-[#5ecf4f] border-[#349f2d]/40' : 'text-[#aba8a4] border-[#2b2f2b] hover:border-[#404540] hover:text-[#f4efeb]'}`}>
                     {cat.name} <span className="opacity-50">({cat.items.length})</span>
                   </button>
                 ))}
@@ -740,22 +740,22 @@ export default function POSPage() {
           </div>
 
           <div className="flex-1 overflow-y-auto p-3">
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-3 xl:grid-cols-4 gap-3">
               {filteredItems.map(item => {
                 const inCart = cart.find(c => c.menuItemId === item.id);
                 return (
                   <button key={item.id} onClick={() => addToCart(item)}
-                    className={`relative text-left rounded-2xl p-3 border transition-all active:scale-[0.97] ${inCart ? 'bg-[#349f2d]/20 border-[#349f2d]/50' : 'bg-[#191c19] border-[#2b2f2b] hover:border-[#404540] hover:bg-[#1b1e1b]'}`}>
+                    className={`relative text-left rounded-2xl p-4 min-h-[90px] border transition-all active:scale-[0.97] ${inCart ? 'bg-[#349f2d]/20 border-[#349f2d]/50' : 'bg-[#191c19] border-[#2b2f2b] hover:border-[#404540] hover:bg-[#1b1e1b]'}`}>
                     {inCart && (
-                      <span className="absolute top-2 right-2 w-5 h-5 bg-[#349f2d] rounded-full flex items-center justify-center text-[10px] font-bold text-white">
+                      <span className="absolute top-2.5 right-2.5 w-6 h-6 bg-[#349f2d] rounded-full flex items-center justify-center text-xs font-bold text-white">
                         {inCart.quantity}
                       </span>
                     )}
                     {item.isPopular && !inCart && (
-                      <span className="absolute top-2 right-2 text-[9px] font-bold text-yellow-400 bg-yellow-400/10 px-1.5 py-0.5 rounded-full border border-yellow-400/30">★</span>
+                      <span className="absolute top-2.5 right-2.5 text-[10px] font-bold text-yellow-400 bg-yellow-400/10 px-1.5 py-0.5 rounded-full border border-yellow-400/30">★ Popular</span>
                     )}
-                    <p className="text-sm font-semibold text-[#f4efeb] leading-tight mb-1 pr-5">{item.name}</p>
-                    <p className="text-sm font-bold text-[#5ecf4f]">{formatCurrency(item.price)}</p>
+                    <p className="text-[15px] font-semibold text-[#f4efeb] leading-snug mb-2 pr-6">{item.name}</p>
+                    <p className="text-base font-bold text-[#5ecf4f]">{formatCurrency(item.price)}</p>
                   </button>
                 );
               })}
@@ -792,24 +792,24 @@ export default function POSPage() {
                 <p className="text-sm text-[#aba8a4]">Tap items to add</p>
               </div>
             ) : cart.map(item => (
-              <div key={item.menuItemId} className="bg-[#191c19] border border-[#2b2f2b] rounded-xl px-3 py-2.5">
-                <div className="flex items-start justify-between gap-2 mb-1.5">
-                  <p className="text-xs font-medium text-[#f4efeb] flex-1 leading-tight">{item.name}</p>
+              <div key={item.menuItemId} className="bg-[#191c19] border border-[#2b2f2b] rounded-xl px-3 py-3">
+                <div className="flex items-start justify-between gap-2 mb-2">
+                  <p className="text-sm font-medium text-[#f4efeb] flex-1 leading-tight">{item.name}</p>
                   <button onClick={() => removeFromCart(item.menuItemId)} className="text-[#aba8a4] hover:text-red-400 transition-colors shrink-0">
-                    <Trash2 size={12}/>
+                    <Trash2 size={14}/>
                   </button>
                 </div>
-                <div className="flex items-center justify-between mb-1.5">
-                  <div className="flex items-center gap-1.5">
-                    <button onClick={() => updateQty(item.menuItemId, -1)} className="w-5 h-5 rounded-md bg-[#2b2f2b] hover:bg-[#404540] flex items-center justify-center transition-colors">
-                      <Minus size={10} className="text-[#f4efeb]"/>
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <button onClick={() => updateQty(item.menuItemId, -1)} className="w-8 h-8 rounded-lg bg-[#2b2f2b] hover:bg-[#404540] flex items-center justify-center transition-colors active:scale-95">
+                      <Minus size={14} className="text-[#f4efeb]"/>
                     </button>
-                    <span className="text-xs font-semibold text-[#f4efeb] w-4 text-center">{item.quantity}</span>
-                    <button onClick={() => updateQty(item.menuItemId, 1)} className="w-5 h-5 rounded-md bg-[#349f2d] hover:bg-[#287e22] flex items-center justify-center transition-colors">
-                      <Plus size={10} className="text-white"/>
+                    <span className="text-sm font-bold text-[#f4efeb] w-5 text-center">{item.quantity}</span>
+                    <button onClick={() => updateQty(item.menuItemId, 1)} className="w-8 h-8 rounded-lg bg-[#349f2d] hover:bg-[#287e22] flex items-center justify-center transition-colors active:scale-95">
+                      <Plus size={14} className="text-white"/>
                     </button>
                   </div>
-                  <span className="text-xs font-bold text-[#5ecf4f]">{formatCurrency(item.price * item.quantity)}</span>
+                  <span className="text-sm font-bold text-[#5ecf4f]">{formatCurrency(item.price * item.quantity)}</span>
                 </div>
                 {/* Per-line note */}
                 {editingNoteId === item.menuItemId ? (
@@ -854,7 +854,7 @@ export default function POSPage() {
             <div className="flex gap-1.5">
               {DELIVERY_TYPES.map(dt => (
                 <button key={dt.id} onClick={() => setDeliveryType(dt.id)}
-                  className={`flex-1 py-1.5 rounded-xl text-[11px] font-medium transition-all border ${deliveryType === dt.id ? 'bg-[#349f2d]/20 text-[#5ecf4f] border-[#349f2d]/40' : 'text-[#aba8a4] border-[#2b2f2b] hover:border-[#404540]'}`}>
+                  className={`flex-1 py-2.5 rounded-xl text-sm font-semibold transition-all border active:scale-95 ${deliveryType === dt.id ? 'bg-[#349f2d]/20 text-[#5ecf4f] border-[#349f2d]/40' : 'text-[#aba8a4] border-[#2b2f2b] hover:border-[#404540]'}`}>
                   {dt.label}
                 </button>
               ))}
@@ -865,7 +865,7 @@ export default function POSPage() {
               <span className="text-lg font-bold text-[#5ecf4f] font-serif">{formatCurrency(total)}</span>
             </div>
             <button onClick={() => setView('payment')} disabled={cart.length === 0}
-              className="w-full bg-[#349f2d] hover:bg-[#287e22] disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-2xl py-3.5 font-semibold text-sm transition-all active:scale-[0.98] shadow-[0_0_20px_rgba(52,159,45,0.3)]">
+              className="w-full bg-[#349f2d] hover:bg-[#287e22] disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-2xl py-5 font-bold text-base transition-all active:scale-[0.98] shadow-[0_0_24px_rgba(52,159,45,0.4)]">
               <Receipt size={14} className="inline mr-1.5 -mt-0.5"/>
               Charge {cart.length > 0 ? formatCurrency(total) : ''}
             </button>

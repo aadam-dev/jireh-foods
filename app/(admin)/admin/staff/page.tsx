@@ -47,6 +47,10 @@ const SALARY_TYPES = [
   { value: 'HOURLY', label: 'Hourly' },
 ];
 
+// IT Admin account functions as OWNER but displays a distinct label
+const getMemberRoleLabel = (member: any) =>
+  member.email === 'it@jireh.com' ? 'IT Admin' : (ROLE_LABELS[member.role as keyof typeof ROLE_LABELS] ?? member.role);
+
 export default function StaffPage() {
   const [staff, setStaff] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -204,7 +208,7 @@ export default function StaffPage() {
                 <div className="flex items-center justify-between">
                   <span className="text-xs text-[#aba8a4]">Role</span>
                   <span className={`text-xs font-medium px-2 py-0.5 rounded-full border ${ROLE_COLORS[member.role as keyof typeof ROLE_COLORS]}`}>
-                    {ROLE_LABELS[member.role as keyof typeof ROLE_LABELS]}
+                    {getMemberRoleLabel(member)}
                   </span>
                 </div>
                 {member.staffProfile?.salary > 0 && (
