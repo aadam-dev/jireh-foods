@@ -12,7 +12,7 @@ export async function GET(req: NextRequest) {
   const page = parseInt(searchParams.get('page') || '1');
   const limit = parseInt(searchParams.get('limit') || '30');
 
-  const where: any = {};
+  const where: any = { isDemo: false }; // never surface IT demo orders in admin
   if (status && status !== 'ALL') where.status = status;
   if (source && source !== 'ALL') where.source = source;
 

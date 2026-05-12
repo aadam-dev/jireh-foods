@@ -53,8 +53,38 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  const subtotal = data.items.reduce((s, i) => s + i.price * i.quantity, 0);
-  const discountAmount = data.discountAmount ?? 0;
+  // ── Server-side price verification ──────────────────────────────────
+  // Never trust client-sent prices — always look up from DB
+  const menuItemIds = data.items.map(i => i.menuItemId);
+  const dbMenuItems = await prisma.menuItem.findMany({
+    where: { id: { in: menuItemIds }, isAvailable: true },
+    select: { id: true, price: true, name: true },
+  });
+  const priceMap = new Map(dbMenuItems.map(i => [i.id, i]));
+
+  for (const item of data.items) {
+    if (!priceMap.has(item.menuItemId)) {
+      return NextResponse.json(
+        { error: `Item "${item.name}" is not available` },
+        { status: 400 }
+      );
+    }
+  }
+
+  // Build verified items using canonical DB prices
+  const verifiedItems = data.items.map(item => {
+    const dbItem = priceMap.get(item.menuItemId)!;
+    return { ...item, price: Number(dbItem.price), name: dbItem.name };
+  });
+
+  const subtotal = verifiedItems.reduce((s, i) => s + i.price * i.quantity, 0);
+  const discountAmount = Math.min(data.discountAmount ?? 0, subtotal); // cap at subtotal
+  if ((data.discountAmount ?? 0) > subtotal) {
+    return NextResponse.json(
+      { error: 'Discount cannot exceed the order subtotal' },
+      { status: 400 }
+    );
+  }
   const taxableAmount = subtotal - discountAmount;
   // Ghana Composite Levy — check settings, default disabled for startup
   const taxRate = 0; // Set to 0.15 when GRA registered
@@ -87,7 +117,7 @@ export async function POST(req: NextRequest) {
         staffId: session.user.id,
         isDemo,
         items: {
-          create: data.items.map(item => ({
+          create: verifiedItems.map(item => ({
             menuItemId: item.menuItemId,
             name: item.name,
             price: item.price,

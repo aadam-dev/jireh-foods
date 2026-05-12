@@ -107,7 +107,15 @@ export async function PATCH(req: NextRequest) {
   const session = await auth();
   if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
+  const role = (session.user as any).role;
+  if (!['OWNER', 'MANAGER'].includes(role)) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  }
+
   const { id, ...updates } = await req.json();
-  const item = await prisma.inventoryItem.update({ where: { id }, data: updates });
+  if (!id) return NextResponse.json({ error: 'Item ID required' }, { status: 400 });
+
+  const data = itemSchema.partial().parse(updates);
+  const item = await prisma.inventoryItem.update({ where: { id }, data: data as any });
   return NextResponse.json(item);
 }

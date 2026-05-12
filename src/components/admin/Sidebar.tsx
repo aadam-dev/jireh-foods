@@ -10,6 +10,7 @@ import {
   Truck, ShoppingCart,
 } from 'lucide-react';
 import { UserRole } from '@prisma/client';
+import { ROLE_LABELS } from '@/src/lib/permissions';
 
 interface NavItem {
   href: string;
@@ -151,7 +152,9 @@ export function Sidebar({ user, onClose, mobile = false }: SidebarProps) {
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-sm font-medium text-[#f4efeb] truncate">{user.name}</p>
-            <p className="text-[10px] text-[#aba8a4] truncate">{user.role}</p>
+            <p className="text-[10px] text-[#aba8a4] truncate">
+              {user.email === 'it@jireh.com' ? 'IT Admin' : (ROLE_LABELS[user.role] ?? user.role)}
+            </p>
           </div>
         </div>
         <button

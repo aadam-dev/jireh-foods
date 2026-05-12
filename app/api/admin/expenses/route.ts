@@ -43,6 +43,11 @@ export async function POST(req: NextRequest) {
   const session = await auth();
   if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
+  const role = (session.user as any).role;
+  if (!['OWNER', 'MANAGER', 'ACCOUNTANT'].includes(role)) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  }
+
   const body = await req.json();
   const data = expenseSchema.parse(body);
 
