@@ -35,3 +35,52 @@ body {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* ── Print styles for reports ─────────────────────────────────────────────── */
+@media print {
+  /* Reset dark theme to white paper */
+  body {
+    background: white !important;
+    background-image: none !important;
+    color: #111 !important;
+    font-size: 11pt;
+  }
+
+  /* Hide sidebar, topbar, nav, and other chrome */
+  aside, nav,
+  [class*="sidebar"],
+  [class*="Sidebar"],
+  [data-sidebar],
+  .print\\:hidden {
+    display: none !important;
+  }
+
+  /* Make report cards readable on white */
+  .bg-\\[\\#191c19\\], .bg-\\[\\#111311\\], .bg-\\[\\#0a0b0a\\] {
+    background: #f9f9f9 !important;
+    border-color: #ddd !important;
+  }
+
+  /* Text colour overrides */
+  .text-\\[\\#f4efeb\\], .text-\\[\\#aba8a4\\] {
+    color: #333 !important;
+  }
+
+  /* Ensure charts & cards don't get clipped */
+  .recharts-responsive-container {
+    page-break-inside: avoid;
+  }
+
+  /* Card page breaks */
+  .rounded-2xl, .rounded-xl {
+    page-break-inside: avoid;
+    border: 1px solid #e0e0e0 !important;
+    background: #fafafa !important;
+  }
+
+  /* Page settings */
+  @page {
+    size: A4 portrait;
+    margin: 18mm 15mm;
+  }
+}

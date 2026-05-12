@@ -1,10 +1,10 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   ChevronLeft, ChevronRight, TrendingUp, TrendingDown,
   ShoppingBag, DollarSign, BarChart3, Clock, CheckCircle2,
-  AlertTriangle, Users,
+  AlertTriangle, Users, Download, FileSpreadsheet, FileText, Printer,
 } from 'lucide-react';
 import { format, subMonths, addMonths } from 'date-fns';
 import {
@@ -92,6 +92,45 @@ export default function ReportsPage() {
   const [loading, setLoading] = useState(true);
   const [month, setMonth] = useState(new Date());
   const [tab, setTab] = useState<Tab>('pl');
+  const [exporting, setExporting] = useState<'csv' | 'xlsx' | null>(null);
+  const [exportMenuOpen, setExportMenuOpen] = useState(false);
+  const exportMenuRef = useRef<HTMLDivElement>(null);
+
+  // Close export dropdown on outside click
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (exportMenuRef.current && !exportMenuRef.current.contains(e.target as Node)) {
+        setExportMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  const handleExport = async (fmt: 'csv' | 'xlsx') => {
+    setExporting(fmt);
+    setExportMenuOpen(false);
+    try {
+      const monthStr = format(month, 'yyyy-MM');
+      const res = await fetch(`/api/admin/reports/export?format=${fmt}&month=${monthStr}`);
+      if (!res.ok) throw new Error('Export failed');
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `jireh-report-${monthStr}.${fmt}`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      alert('Export failed. Please try again.');
+    } finally {
+      setExporting(null);
+    }
+  };
+
+  const handlePrint = () => {
+    window.print();
+  };
 
   const fetchData = async () => {
     setLoading(true);
@@ -124,9 +163,9 @@ export default function ReportsPage() {
   ];
 
   return (
-    <div className="p-6 max-w-7xl mx-auto space-y-6">
+    <div className="p-6 max-w-7xl mx-auto space-y-6 print:p-0 print:space-y-4">
       {/* Header */}
-      <div className="flex items-center justify-between flex-wrap gap-3">
+      <div className="flex items-center justify-between flex-wrap gap-3 print:hidden">
         <div>
           <h1 className="text-2xl font-bold text-[#f4efeb] font-serif">Reports</h1>
           <div className="flex items-center gap-2 mt-1">
@@ -146,19 +185,71 @@ export default function ReportsPage() {
           </div>
         </div>
 
-        {/* Tabs */}
-        <div className="flex gap-1 bg-[#111311] border border-[#2b2f2b] rounded-xl p-1">
-          {tabs.map(t => (
-            <button key={t.id} onClick={() => setTab(t.id)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-                tab === t.id
-                  ? 'bg-[#349f2d] text-white'
-                  : 'text-[#aba8a4] hover:text-[#f4efeb]'
-              }`}>
-              {t.icon}{t.label}
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Export dropdown */}
+          <div className="relative" ref={exportMenuRef}>
+            <button
+              onClick={() => setExportMenuOpen(v => !v)}
+              disabled={!data || !!exporting}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium bg-[#111311] border border-[#2b2f2b] text-[#aba8a4] hover:text-[#f4efeb] hover:border-[#349f2d]/50 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              {exporting ? (
+                <span className="w-3.5 h-3.5 border border-[#aba8a4] border-t-transparent rounded-full animate-spin" />
+              ) : (
+                <Download size={13} />
+              )}
+              {exporting ? `Exporting ${exporting.toUpperCase()}…` : 'Export'}
             </button>
-          ))}
+
+            {exportMenuOpen && (
+              <div className="absolute right-0 top-full mt-1.5 z-50 w-44 bg-[#111311] border border-[#2b2f2b] rounded-xl shadow-2xl overflow-hidden">
+                <button
+                  onClick={() => handleExport('csv')}
+                  className="flex items-center gap-2.5 w-full px-3 py-2.5 text-xs text-[#aba8a4] hover:text-[#f4efeb] hover:bg-white/5 transition-colors"
+                >
+                  <FileText size={13} className="text-[#5ecf4f]" />
+                  Download CSV
+                </button>
+                <button
+                  onClick={() => handleExport('xlsx')}
+                  className="flex items-center gap-2.5 w-full px-3 py-2.5 text-xs text-[#aba8a4] hover:text-[#f4efeb] hover:bg-white/5 transition-colors"
+                >
+                  <FileSpreadsheet size={13} className="text-blue-400" />
+                  Download Excel
+                </button>
+                <div className="border-t border-[#2b2f2b]" />
+                <button
+                  onClick={handlePrint}
+                  className="flex items-center gap-2.5 w-full px-3 py-2.5 text-xs text-[#aba8a4] hover:text-[#f4efeb] hover:bg-white/5 transition-colors"
+                >
+                  <Printer size={13} className="text-purple-400" />
+                  Print / Save PDF
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Tabs */}
+          <div className="flex gap-1 bg-[#111311] border border-[#2b2f2b] rounded-xl p-1">
+            {tabs.map(t => (
+              <button key={t.id} onClick={() => setTab(t.id)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                  tab === t.id
+                    ? 'bg-[#349f2d] text-white'
+                    : 'text-[#aba8a4] hover:text-[#f4efeb]'
+                }`}>
+                {t.icon}{t.label}
+              </button>
+            ))}
+          </div>
         </div>
+      </div>
+
+      {/* Print header — only visible when printing */}
+      <div className="hidden print:block mb-4">
+        <h1 className="text-xl font-bold text-black">Jireh Natural Foods</h1>
+        <p className="text-sm text-gray-600">Monthly Report — {format(month, 'MMMM yyyy')}</p>
+        <p className="text-xs text-gray-400 mt-0.5">Generated {format(new Date(), 'dd MMM yyyy, HH:mm')}</p>
       </div>
 
       {loading ? (
