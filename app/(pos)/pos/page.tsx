@@ -56,11 +56,21 @@ function Numpad({ value, onChange }: { value: string; onChange: (v: string) => v
 }
 
 /* ─── Receipt Component ─────────────────────────────────────────────── */
-function Receipt80mm({ order, session: posSession }: { order: any; session: PosSession | null }) {
+function Receipt80mm({
+  order,
+  session: posSession,
+  businessName = 'JIREH NATURAL FOODS',
+  receiptFooter = 'Thank you for your patronage!',
+}: {
+  order: any;
+  session: PosSession | null;
+  businessName?: string;
+  receiptFooter?: string;
+}) {
   return (
     <div id="receipt-print" className="hidden print:block font-mono text-[11px] w-[72mm] mx-auto">
       <div className="text-center mb-2">
-        <div className="font-bold text-[14px]">JIREH NATURAL FOODS</div>
+        <div className="font-bold text-[14px]">{businessName.toUpperCase()}</div>
         <div>Fresh &amp; Healthy — Always</div>
         <div>Tel: 055 113 3481</div>
         <div className="border-t border-dashed border-black mt-1 pt-1">
@@ -82,7 +92,7 @@ function Receipt80mm({ order, session: posSession }: { order: any; session: PosS
         <div className="flex justify-between"><span>Discount</span><span>-{formatCurrency(order.discountAmount)}</span></div>
       )}
       {Number(order.taxAmount) > 0 && (
-        <div className="flex justify-between"><span>Tax (GCL 15%)</span><span>{formatCurrency(order.taxAmount)}</span></div>
+        <div className="flex justify-between"><span>Tax (GCL)</span><span>{formatCurrency(order.taxAmount)}</span></div>
       )}
       <div className="flex justify-between font-bold text-[13px]">
         <span>TOTAL</span><span>{formatCurrency(order.total)}</span>
@@ -98,8 +108,7 @@ function Receipt80mm({ order, session: posSession }: { order: any; session: PosS
       {order.paymentRef && <div>Ref: {order.paymentRef}</div>}
       <div className="border-t border-dashed border-black my-1" />
       <div className="text-center">
-        <div>Thank you for your patronage!</div>
-        <div>God bless you 🌿</div>
+        {receiptFooter.split('\n').map((line, i) => <div key={i}>{line}</div>)}
       </div>
     </div>
   );
@@ -115,6 +124,7 @@ export default function POSPage() {
   const [activeCat, setActiveCat] = useState('');
   const [search, setSearch] = useState('');
   const [cart, setCart] = useState<CartItem[]>([]);
+  const [receiptSettings, setReceiptSettings] = useState({ businessName: 'Jireh Natural Foods', receiptFooter: 'Thank you for your patronage!' });
   const [paymentMethod, setPaymentMethod] = useState('CASH');
   const [deliveryType, setDeliveryType] = useState('DINE_IN');
   const [customerName, setCustomerName] = useState('');
@@ -195,7 +205,21 @@ export default function POSPage() {
     if (res.ok) setTodayOrders(await res.json());
   };
 
-  useEffect(() => { fetchMenu(); fetchSession(); }, []);
+  useEffect(() => {
+    fetchMenu();
+    fetchSession();
+    // Load receipt-relevant settings (business name + footer)
+    fetch('/api/admin/settings')
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (!data) return;
+        setReceiptSettings({
+          businessName: data.business_name ?? 'Jireh Natural Foods',
+          receiptFooter: data.receipt_footer ?? 'Thank you for your patronage!',
+        });
+      })
+      .catch(() => {}); // silently fall back to defaults
+  }, []);
   useEffect(() => { if (authSession?.user) fetchOrders(); }, [authSession, posSession]);
 
   // Cart helpers
@@ -340,7 +364,12 @@ export default function POSPage() {
             </button>
           </div>
         </div>
-        <Receipt80mm order={lastOrder} session={posSession} />
+        <Receipt80mm
+          order={lastOrder}
+          session={posSession}
+          businessName={receiptSettings.businessName}
+          receiptFooter={receiptSettings.receiptFooter}
+        />
       </div>
     );
   }

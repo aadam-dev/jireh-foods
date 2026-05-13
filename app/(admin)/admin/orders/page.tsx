@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Search, RefreshCw, ChevronDown } from 'lucide-react';
+import { useSession } from 'next-auth/react';
+import { Search, RefreshCw, XCircle, AlertTriangle } from 'lucide-react';
 import { Card } from '@/src/components/ui/Card';
 import { Button } from '@/src/components/ui/Button';
 import { Input } from '@/src/components/ui/Input';
@@ -12,17 +13,12 @@ import { formatCurrency, formatDateTime } from '@/src/lib/utils';
 import { ShoppingBag } from 'lucide-react';
 
 const STATUSES = ['ALL', 'PENDING', 'PREPARING', 'READY', 'COMPLETED', 'CANCELLED'];
-const SOURCES = ['ALL', 'POS', 'ONLINE'];
-
-const STATUS_COLORS: Record<string, string> = {
-  PENDING: 'bg-yellow-500',
-  PREPARING: 'bg-blue-500',
-  READY: 'bg-purple-500',
-  COMPLETED: 'bg-[#349f2d]',
-  CANCELLED: 'bg-red-500',
-};
 
 export default function OrdersPage() {
+  const { data: authSession } = useSession();
+  const userRole = (authSession?.user as any)?.role ?? '';
+  const canVoid = ['OWNER', 'MANAGER'].includes(userRole);
+
   const [orders, setOrders] = useState<any[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -31,6 +27,13 @@ export default function OrdersPage() {
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState<any>(null);
   const [updating, setUpdating] = useState(false);
+
+  // Void modal state
+  const [voidOpen, setVoidOpen] = useState(false);
+  const [voidReason, setVoidReason] = useState('');
+  const [voidRestock, setVoidRestock] = useState(true);
+  const [voiding, setVoiding] = useState(false);
+  const [voidError, setVoidError] = useState<string | null>(null);
 
   const fetchOrders = async () => {
     setLoading(true);
@@ -67,6 +70,43 @@ export default function OrdersPage() {
       setSelected((prev: any) => prev ? { ...prev, status } : null);
     } finally {
       setUpdating(false);
+    }
+  };
+
+  const openVoidModal = () => {
+    setVoidReason('');
+    setVoidRestock(true);
+    setVoidError(null);
+    setVoidOpen(true);
+  };
+
+  const submitVoid = async () => {
+    if (!selected) return;
+    if (voidReason.trim().length < 3) {
+      setVoidError('Please provide a reason (at least 3 characters).');
+      return;
+    }
+    setVoiding(true);
+    setVoidError(null);
+    try {
+      const res = await fetch(`/api/admin/orders/${selected.id}/void`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason: voidReason.trim(), restockInventory: voidRestock }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setVoidError(data.error ?? 'Failed to void order.');
+        return;
+      }
+      // Success — close both modals, refresh list
+      setVoidOpen(false);
+      setSelected(null);
+      await fetchOrders();
+    } catch {
+      setVoidError('Network error — please try again.');
+    } finally {
+      setVoiding(false);
     }
   };
 
@@ -156,7 +196,7 @@ export default function OrdersPage() {
         )}
       </Card>
 
-      {/* Order detail modal */}
+      {/* ── Order detail modal ── */}
       <Modal open={!!selected} onClose={() => setSelected(null)} title={`Order ${selected?.orderNumber}`} size="lg">
         {selected && (
           <div className="space-y-5">
@@ -194,6 +234,7 @@ export default function OrdersPage() {
               </div>
             </div>
 
+            {/* Status update controls (not for cancelled orders) */}
             {selected.status !== 'COMPLETED' && selected.status !== 'CANCELLED' && (
               <div>
                 <p className="text-xs font-semibold text-[#aba8a4] uppercase tracking-wider mb-2">Update Status</p>
@@ -212,6 +253,25 @@ export default function OrdersPage() {
                 </div>
               </div>
             )}
+
+            {/* Void / Refund — OWNER and MANAGER only, not already cancelled */}
+            {canVoid && selected.status !== 'CANCELLED' && (
+              <div className="border-t border-[#2b2f2b] pt-4">
+                <p className="text-xs font-semibold text-[#aba8a4] uppercase tracking-wider mb-2">Manager Actions</p>
+                <Button
+                  variant="danger"
+                  size="sm"
+                  icon={<XCircle size={14} />}
+                  onClick={openVoidModal}
+                >
+                  Void / Refund Order
+                </Button>
+                <p className="text-[10px] text-[#aba8a4] mt-1.5">
+                  Marks order as cancelled and optionally restocks inventory. Logged to audit trail.
+                </p>
+              </div>
+            )}
+
             {selected.notes && (
               <div>
                 <p className="text-xs text-[#aba8a4] mb-1">Notes</p>
@@ -220,6 +280,90 @@ export default function OrdersPage() {
             )}
           </div>
         )}
+      </Modal>
+
+      {/* ── Void confirmation modal ── */}
+      <Modal
+        open={voidOpen}
+        onClose={() => { if (!voiding) setVoidOpen(false); }}
+        title="Void / Refund Order"
+        size="sm"
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setVoidOpen(false)} disabled={voiding}>
+              Cancel
+            </Button>
+            <Button variant="danger" onClick={submitVoid} loading={voiding} icon={<XCircle size={14} />}>
+              Confirm Void
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          {/* Warning banner */}
+          <div className="flex items-start gap-2.5 bg-red-500/10 border border-red-500/20 rounded-xl p-3">
+            <AlertTriangle size={14} className="text-red-400 shrink-0 mt-0.5" />
+            <p className="text-xs text-red-300 leading-relaxed">
+              This will permanently mark order <strong className="text-red-200">{selected?.orderNumber}</strong> as
+              cancelled ({formatCurrency(selected?.total)}). This action is logged and cannot be undone.
+            </p>
+          </div>
+
+          {/* Reason */}
+          <div>
+            <label className="block text-xs font-medium text-[#aba8a4] mb-1.5">
+              Void reason <span className="text-red-400">*</span>
+            </label>
+            <textarea
+              value={voidReason}
+              onChange={e => { setVoidReason(e.target.value); setVoidError(null); }}
+              placeholder="e.g. Customer cancelled, wrong order, duplicate…"
+              rows={3}
+              className="w-full bg-[#111311] border border-[#2b2f2b] rounded-xl px-3 py-2.5 text-sm text-[#f4efeb] placeholder:text-[#aba8a4]/50 focus:outline-none focus:border-[#349f2d]/60 resize-none"
+            />
+          </div>
+
+          {/* Restock toggle */}
+          <label className="flex items-start gap-3 cursor-pointer group">
+            <div className="mt-0.5">
+              <input
+                type="checkbox"
+                checked={voidRestock}
+                onChange={e => setVoidRestock(e.target.checked)}
+                className="sr-only"
+              />
+              <div
+                onClick={() => setVoidRestock(v => !v)}
+                className={[
+                  'w-4 h-4 rounded border flex items-center justify-center transition-all',
+                  voidRestock
+                    ? 'bg-[#349f2d] border-[#349f2d]'
+                    : 'bg-transparent border-[#2b2f2b] group-hover:border-[#404540]',
+                ].join(' ')}
+              >
+                {voidRestock && (
+                  <svg className="w-2.5 h-2.5 text-white" viewBox="0 0 10 8" fill="none">
+                    <path d="M1 4l3 3 5-6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                )}
+              </div>
+            </div>
+            <div>
+              <p className="text-sm text-[#f4efeb]">Restock inventory</p>
+              <p className="text-[10px] text-[#aba8a4] mt-0.5">
+                Reverse BOM ingredient usage for all items in this order.
+              </p>
+            </div>
+          </label>
+
+          {/* Error */}
+          {voidError && (
+            <div className="flex items-center gap-2 bg-red-500/10 border border-red-500/20 rounded-xl px-3 py-2.5">
+              <AlertTriangle size={13} className="text-red-400 shrink-0" />
+              <p className="text-xs text-red-300">{voidError}</p>
+            </div>
+          )}
+        </div>
       </Modal>
     </div>
   );
