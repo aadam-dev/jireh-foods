@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/src/lib/auth';
 import { prisma } from '@/src/lib/prisma';
 import { z } from 'zod';
+import { logAudit } from '@/src/lib/audit';
 
 const expenseSchema = z.object({
   categoryId: z.string(),
@@ -62,6 +63,15 @@ export async function POST(req: NextRequest) {
     },
     include: { category: true },
   });
+  void logAudit({
+    userId: session.user.id,
+    action: 'CREATE',
+    entity: 'Expense',
+    entityId: expense.id,
+    details: { amount: Number(expense.amount), category: expense.category.name, description: expense.description },
+    req,
+  });
+
   return NextResponse.json(expense);
 }
 

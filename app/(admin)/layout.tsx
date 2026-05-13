@@ -1,16 +1,34 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { Menu } from 'lucide-react';
 import { Sidebar } from '@/src/components/admin/Sidebar';
+import { ErrorBoundary } from '@/src/components/ui/ErrorBoundary';
 import { UserRole } from '@prisma/client';
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const { data: session, status } = useSession();
   const router = useRouter();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [lowStockCount, setLowStockCount] = useState(0);
+
+  useEffect(() => {
+    if (status !== 'authenticated') return;
+    fetch('/api/admin/inventory/low-stock')
+      .then(r => r.ok ? r.json() : { count: 0 })
+      .then(d => setLowStockCount(d.count ?? 0))
+      .catch(() => {});
+    // Refresh every 5 minutes
+    const interval = setInterval(() => {
+      fetch('/api/admin/inventory/low-stock')
+        .then(r => r.ok ? r.json() : { count: 0 })
+        .then(d => setLowStockCount(d.count ?? 0))
+        .catch(() => {});
+    }, 5 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, [status]);
 
   if (status === 'loading') {
     return (
@@ -34,7 +52,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     <div className="flex h-screen bg-[#111311] overflow-hidden">
       {/* Desktop sidebar */}
       <div className="hidden lg:flex shrink-0">
-        <Sidebar user={user} />
+        <Sidebar user={user} lowStockCount={lowStockCount} />
       </div>
 
       {/* Mobile sidebar overlay */}
@@ -45,7 +63,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             onClick={() => setSidebarOpen(false)}
           />
           <div className="relative z-10">
-            <Sidebar user={user} onClose={() => setSidebarOpen(false)} mobile />
+            <Sidebar user={user} lowStockCount={lowStockCount} onClose={() => setSidebarOpen(false)} mobile />
           </div>
         </div>
       )}
@@ -65,7 +83,9 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
         {/* Page content */}
         <main className="flex-1 overflow-y-auto">
-          {children}
+          <ErrorBoundary>
+            {children}
+          </ErrorBoundary>
         </main>
       </div>
     </div>

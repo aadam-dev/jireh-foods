@@ -198,6 +198,7 @@ model Order {
   staffId         String?
   staff           User?         @relation(fields: [staffId], references: [id])
   isDemo          Boolean       @default(false)
+  locationId      String?       // nullable — reserved for multi-location expansion
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
 

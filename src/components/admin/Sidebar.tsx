@@ -7,7 +7,7 @@ import {
   LayoutDashboard, ShoppingBag, UtensilsCrossed, Package,
   Receipt, Users, DollarSign, BarChart3, Settings,
   Monitor, LogOut, Leaf, ChevronRight, X, FlaskConical,
-  Truck, ShoppingCart,
+  Truck, ShoppingCart, UserSearch,
 } from 'lucide-react';
 import { UserRole } from '@prisma/client';
 import { ROLE_LABELS } from '@/src/lib/permissions';
@@ -50,6 +50,12 @@ const NAV_SECTIONS: NavSection[] = [
       { href: '/admin/staff', label: 'Staff', icon: <Users size={17} />, roles: ['OWNER', 'MANAGER'] },
       { href: '/admin/payroll', label: 'Payroll', icon: <DollarSign size={17} />, roles: ['OWNER', 'ACCOUNTANT'] },
       { href: '/admin/reports', label: 'Reports', icon: <BarChart3 size={17} />, roles: ['OWNER', 'MANAGER', 'ACCOUNTANT'] },
+    ],
+  },
+  {
+    label: 'Tools',
+    items: [
+      { href: '/admin/customers', label: 'Customers', icon: <UserSearch size={17} />, roles: ['OWNER', 'MANAGER', 'ACCOUNTANT'] },
       { href: '/admin/settings', label: 'Settings', icon: <Settings size={17} />, roles: ['OWNER'] },
     ],
   },
@@ -57,21 +63,19 @@ const NAV_SECTIONS: NavSection[] = [
 
 interface SidebarProps {
   user: { name: string; email: string; role: UserRole };
+  lowStockCount?: number;
   onClose?: () => void;
   mobile?: boolean;
 }
 
-export function Sidebar({ user, onClose, mobile = false }: SidebarProps) {
+export function Sidebar({ user, lowStockCount = 0, onClose, mobile = false }: SidebarProps) {
   const pathname = usePathname();
 
   const isActive = (href: string) =>
     href === '/admin' ? pathname === '/admin' : pathname.startsWith(href);
 
   return (
-    <aside className={[
-      'flex flex-col bg-[#0a0b0a] border-r border-[#2b2f2b] h-full',
-      mobile ? 'w-72' : 'w-64',
-    ].join(' ')}>
+    <aside className={['flex flex-col bg-[#0a0b0a] border-r border-[#2b2f2b] h-full', mobile ? 'w-72' : 'w-64'].join(' ')}>
       {/* Logo */}
       <div className="flex items-center justify-between px-5 py-5 border-b border-[#2b2f2b] shrink-0">
         <div className="flex items-center gap-3">
@@ -113,42 +117,45 @@ export function Sidebar({ user, onClose, mobile = false }: SidebarProps) {
                 {section.label}
               </p>
               <div className="space-y-0.5">
-                {visibleItems.map(item => (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    onClick={onClose}
-                    className={[
-                      'flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all',
-                      isActive(item.href)
-                        ? 'bg-[#349f2d]/20 text-[#5ecf4f] border border-[#349f2d]/40'
-                        : 'text-[#aba8a4] hover:text-[#f4efeb] hover:bg-white/5 border border-transparent',
-                    ].join(' ')}
-                  >
-                    <span className={isActive(item.href) ? 'text-[#5ecf4f]' : 'text-[#aba8a4]'}>
-                      {item.icon}
-                    </span>
-                    {item.label}
-                    {item.badge !== undefined && item.badge > 0 && (
-                      <span className="ml-auto bg-[#349f2d] text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center">
-                        {item.badge}
+                {visibleItems.map(item => {
+                  const badge = item.href === '/admin/inventory' ? lowStockCount : (item.badge ?? 0);
+                  return (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      onClick={onClose}
+                      className={[
+                        'flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all',
+                        isActive(item.href)
+                          ? 'bg-[#349f2d]/20 text-[#5ecf4f] border border-[#349f2d]/40'
+                          : 'text-[#aba8a4] hover:text-[#f4efeb] hover:bg-white/5 border border-transparent',
+                      ].join(' ')}
+                    >
+                      <span className={isActive(item.href) ? 'text-[#5ecf4f]' : 'text-[#aba8a4]'}>
+                        {item.icon}
                       </span>
-                    )}
-                  </Link>
-                ))}
+                      {item.label}
+                      {badge > 0 && (
+                        <span className={`ml-auto text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center ${
+                          item.href === '/admin/inventory' ? 'bg-yellow-500' : 'bg-[#349f2d]'
+                        }`}>
+                          {badge}
+                        </span>
+                      )}
+                    </Link>
+                  );
+                })}
               </div>
             </div>
           );
         })}
       </nav>
 
-      {/* User */}
+      {/* User footer */}
       <div className="px-3 py-3 border-t border-[#2b2f2b] shrink-0">
         <div className="flex items-center gap-3 px-3 py-2 mb-1">
           <div className="w-8 h-8 rounded-full bg-[#349f2d]/20 border border-[#349f2d]/40 flex items-center justify-center shrink-0">
-            <span className="text-xs font-bold text-[#5ecf4f]">
-              {user.name.charAt(0).toUpperCase()}
-            </span>
+            <span className="text-xs font-bold text-[#5ecf4f]">{user.name.charAt(0).toUpperCase()}</span>
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-sm font-medium text-[#f4efeb] truncate">{user.name}</p>

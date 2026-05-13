@@ -3,6 +3,8 @@ import { auth } from '@/src/lib/auth';
 import { prisma } from '@/src/lib/prisma';
 import { z } from 'zod';
 import { generateOrderNumber } from '@/src/lib/utils';
+import { getTaxRate } from '@/src/lib/settings';
+import { logAudit } from '@/src/lib/audit';
 
 const orderItemSchema = z.object({
   menuItemId: z.string(),
@@ -86,8 +88,8 @@ export async function POST(req: NextRequest) {
     );
   }
   const taxableAmount = subtotal - discountAmount;
-  // Ghana Composite Levy — check settings, default disabled for startup
-  const taxRate = 0; // Set to 0.15 when GRA registered
+  // Ghana Composite Levy — rate pulled from Settings table (set via /admin/settings)
+  const taxRate = await getTaxRate();
   const taxAmount = taxableAmount * taxRate;
   const total = taxableAmount + taxAmount;
   const changeAmount = data.tenderedAmount != null ? Math.max(0, data.tenderedAmount - total) : undefined;
@@ -159,6 +161,16 @@ export async function POST(req: NextRequest) {
     }
 
     return created;
+  });
+
+  // Audit — fire-and-forget, never blocks the response
+  void logAudit({
+    userId: session.user.id,
+    action: 'CREATE',
+    entity: 'Order',
+    entityId: order.id,
+    details: { orderNumber: order.orderNumber, total: Number(order.total), paymentMethod: data.paymentMethod, isDemo },
+    req,
   });
 
   return NextResponse.json(order);
