@@ -97,7 +97,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(tx);
   }
 
-  // Create item
+  // Create item — OWNER/MANAGER only
+  const role = (session.user as any).role;
+  if (!['OWNER', 'MANAGER'].includes(role)) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  }
   const data = itemSchema.parse(body);
   const item = await prisma.inventoryItem.create({ data: data as any });
   return NextResponse.json(item);

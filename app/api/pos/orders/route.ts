@@ -177,6 +177,7 @@ export async function GET(req: NextRequest) {
   const orders = await prisma.order.findMany({
     where: {
       source: 'POS',
+      isDemo: false,
       createdAt: { gte: today },
       ...(staffId ? { staffId } : {}),
       ...(sessionId ? { sessionId } : {}),

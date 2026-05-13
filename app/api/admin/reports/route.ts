@@ -3,9 +3,16 @@ import { auth } from '@/src/lib/auth';
 import { prisma } from '@/src/lib/prisma';
 import { startOfMonth, endOfMonth, eachDayOfInterval, format } from 'date-fns';
 
+const ALLOWED_ROLES = ['OWNER', 'MANAGER', 'ACCOUNTANT'];
+
 export async function GET(req: NextRequest) {
   const session = await auth();
   if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  const role = (session.user as any).role;
+  if (!ALLOWED_ROLES.includes(role)) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  }
 
   const { searchParams } = new URL(req.url);
   const month = searchParams.get('month') || format(new Date(), 'yyyy-MM');

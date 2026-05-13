@@ -133,6 +133,9 @@ model PosSession {
   notes        String?
 
   orders       Order[]
+
+  @@index([status])
+  @@index([openedAt])
 }
 
 // ─── Menu ─────────────────────────────────────────────────────────────────────
@@ -199,6 +202,11 @@ model Order {
   updatedAt       DateTime      @updatedAt
 
   items           OrderItem[]
+
+  @@index([createdAt, isDemo])        // dashboard & report date-range scans
+  @@index([sessionId, isDemo])        // session order summaries
+  @@index([staffId, createdAt])       // per-staff order history
+  @@index([status, createdAt])        // order list filtering
 }
 
 model OrderItem {
@@ -249,6 +257,9 @@ model InventoryTransaction {
   notes     String?
   reference String?
   createdAt DateTime                 @default(now())
+
+  @@index([itemId, createdAt])        // per-item transaction history
+  @@index([type, createdAt])          // usage/purchase reporting
 }
 
 // ─── BOM (Recipe Engine) ──────────────────────────────────────────────────────
@@ -309,6 +320,9 @@ model PurchaseOrder {
 
   lines    PoLine[]
   receipts PoReceipt[]
+
+  @@index([status, createdAt])        // PO list filtering by status
+  @@index([supplierId])               // supplier PO history
 }
 
 model PoLine {

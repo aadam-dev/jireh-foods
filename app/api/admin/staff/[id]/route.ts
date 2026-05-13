@@ -12,6 +12,11 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   const body = await req.json();
   const { staffProfile, newPassword, ...userFields } = body;
 
+  // MANAGER cannot assign OWNER role — only OWNER can do that
+  if (role === 'MANAGER' && userFields.role === 'OWNER') {
+    return NextResponse.json({ error: 'Managers cannot assign the Owner role' }, { status: 403 });
+  }
+
   const updates: any = { ...userFields };
   if (newPassword) {
     updates.password = await bcrypt.hash(newPassword, 12);

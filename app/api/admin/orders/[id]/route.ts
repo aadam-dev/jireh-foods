@@ -33,12 +33,18 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     return NextResponse.json({ error: 'No updatable fields provided' }, { status: 400 });
   }
 
-  const order = await prisma.order.update({
-    where: { id: params.id },
-    data: parsed.data,
-    include: { items: true },
-  });
-  return NextResponse.json(order);
+  try {
+    const order = await prisma.order.update({
+      where: { id: params.id },
+      data: parsed.data,
+      include: { items: true },
+    });
+    return NextResponse.json(order);
+  } catch (err: any) {
+    if (err?.code === 'P2025') return NextResponse.json({ error: 'Order not found' }, { status: 404 });
+    console.error('[orders/[id] PATCH]', err);
+    return NextResponse.json({ error: 'Failed to update order' }, { status: 500 });
+  }
 }
 
 export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
@@ -47,6 +53,12 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
   const role = (session.user as any).role;
   if (!['OWNER', 'MANAGER'].includes(role)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
-  await prisma.order.update({ where: { id: params.id }, data: { status: 'CANCELLED' } });
-  return NextResponse.json({ success: true });
+  try {
+    await prisma.order.update({ where: { id: params.id }, data: { status: 'CANCELLED' } });
+    return NextResponse.json({ success: true });
+  } catch (err: any) {
+    if (err?.code === 'P2025') return NextResponse.json({ error: 'Order not found' }, { status: 404 });
+    console.error('[orders/[id] DELETE]', err);
+    return NextResponse.json({ error: 'Failed to cancel order' }, { status: 500 });
+  }
 }
