@@ -6,7 +6,8 @@ import { useRouter } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { Eye, EyeOff, Leaf, Lock, Mail, AlertCircle } from 'lucide-react';
+import { Eye, EyeOff, Lock, Mail, AlertCircle } from 'lucide-react';
+import Image from 'next/image';
 import { Button } from '@/src/components/ui/Button';
 import { Input } from '@/src/components/ui/Input';
 
@@ -62,8 +63,8 @@ export default function LoginPage() {
       <div className="relative w-full max-w-sm">
         {/* Logo */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-[#349f2d]/20 border border-[#349f2d]/40 mb-4">
-            <Leaf className="text-[#5ecf4f]" size={28} />
+          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl overflow-hidden border border-[#349f2d]/40 mb-4 bg-white">
+            <Image src="/jireh/logo.jpg" alt="Jireh Natural Foods" width={64} height={64} className="object-contain" />
           </div>
           <h1 className="text-2xl font-bold text-[#f4efeb] font-serif">Jireh Natural Foods</h1>
           <p className="text-sm text-[#aba8a4] mt-1">Back Office System</p>

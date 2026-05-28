@@ -6,9 +6,10 @@ import { signOut } from 'next-auth/react';
 import {
   LayoutDashboard, ShoppingBag, UtensilsCrossed, Package,
   Receipt, Users, DollarSign, BarChart3, Settings,
-  Monitor, LogOut, Leaf, ChevronRight, X, FlaskConical,
+  Monitor, LogOut, ChevronRight, X, FlaskConical,
   Truck, ShoppingCart, UserSearch,
 } from 'lucide-react';
+import Image from 'next/image';
 import { UserRole } from '@prisma/client';
 import { ROLE_LABELS } from '@/src/lib/permissions';
 
@@ -79,8 +80,8 @@ export function Sidebar({ user, lowStockCount = 0, onClose, mobile = false }: Si
       {/* Logo */}
       <div className="flex items-center justify-between px-5 py-5 border-b border-[#2b2f2b] shrink-0">
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-xl bg-[#349f2d]/20 border border-[#349f2d]/40 flex items-center justify-center">
-            <Leaf size={16} className="text-[#5ecf4f]" />
+          <div className="w-8 h-8 rounded-xl overflow-hidden border border-[#349f2d]/40 bg-white flex-shrink-0">
+            <Image src="/jireh/logo.jpg" alt="Jireh Natural Foods" width={32} height={32} className="object-contain w-full h-full" />
           </div>
           <div>
             <p className="text-sm font-bold text-[#f4efeb] leading-tight">Jireh</p>

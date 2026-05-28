@@ -3,12 +3,13 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useSession, signOut } from 'next-auth/react';
 import {
-  Search, ShoppingCart, Trash2, Plus, Minus, X, Leaf, LogOut,
+  Search, ShoppingCart, Trash2, Plus, Minus, X, LogOut,
   LayoutDashboard, ChevronRight, Banknote, Smartphone, CreditCard,
   Building2, CheckCircle2, Printer, RotateCcw, Clock, AlertCircle,
   Lock, Unlock, Receipt, ChevronDown, Pencil, Zap,
 } from 'lucide-react';
 import Link from 'next/link';
+import Image from 'next/image';
 import { formatCurrency, formatTime } from '@/src/lib/utils';
 
 /* ─── Types ─────────────────────────────────────────────────────────── */
@@ -448,8 +449,8 @@ export default function POSPage() {
       <div className="h-screen bg-[#111311] flex flex-col overflow-hidden">
         <header className="shrink-0 flex items-center justify-between px-4 py-3 bg-[#0a0b0a] border-b border-[#2b2f2b]">
           <div className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded-lg bg-[#349f2d]/20 border border-[#349f2d]/40 flex items-center justify-center">
-              <Leaf size={14} className="text-[#5ecf4f]"/>
+            <div className="w-7 h-7 rounded-lg overflow-hidden border border-[#349f2d]/40 bg-white flex-shrink-0">
+              <Image src="/jireh/logo.jpg" alt="Jireh Natural Foods" width={28} height={28} className="object-contain w-full h-full" />
             </div>
             <span className="text-sm font-semibold text-[#f4efeb]">Jireh POS</span>
           </div>
@@ -715,8 +716,8 @@ export default function POSPage() {
       {/* Top bar */}
       <header className="shrink-0 flex items-center justify-between px-3 py-2.5 bg-[#0a0b0a] border-b border-[#2b2f2b]">
         <div className="flex items-center gap-2">
-          <div className="w-7 h-7 rounded-lg bg-[#349f2d]/20 border border-[#349f2d]/40 flex items-center justify-center">
-            <Leaf size={14} className="text-[#5ecf4f]"/>
+          <div className="w-7 h-7 rounded-lg overflow-hidden border border-[#349f2d]/40 bg-white flex-shrink-0">
+            <Image src="/jireh/logo.jpg" alt="Jireh Natural Foods" width={28} height={28} className="object-contain w-full h-full" />
           </div>
           <span className="text-sm font-semibold text-[#f4efeb]">Jireh POS</span>
           <span className="text-xs text-[#aba8a4] hidden sm:block">· {user?.name}</span>
