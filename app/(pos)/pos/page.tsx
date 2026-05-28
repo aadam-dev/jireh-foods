@@ -110,6 +110,11 @@ function Receipt80mm({
       <div className="text-center">
         {receiptFooter.split('\n').map((line, i) => <div key={i}>{line}</div>)}
       </div>
+      {/* Developer credit — best practice: small, below all transactional content */}
+      <div className="border-t border-dashed border-black mt-2 pt-1 text-center text-[9px] text-gray-500">
+        <div>System by Aadamsays</div>
+        <div>aadamsays@gmail.com · +233263039818</div>
+      </div>
     </div>
   );
 }
@@ -431,12 +436,12 @@ export default function POSPage() {
     );
   }
 
-  // At this point authStatus === 'authenticated', so user is guaranteed to be set
-  const canManageShift = true; // all authenticated staff can open/close shifts
+  // At this point authStatus === 'authenticated', so user is guaranteed to be set.
+  // ALL authenticated users (Owner, Manager, Cashier, Accountant) must open a shift
+  // before taking orders — this is mandatory for accounting accuracy.
+  // EXCEPTION: IT admin (it@jireh.com) runs in demo mode only — no shift, no accounting impact.
   const isAdminRole = ['OWNER', 'MANAGER', 'ACCOUNTANT'].includes(user?.role ?? '');
 
-  // No open session and not currently in the session management view → gate
-  // IT admin bypasses this gate — they can demo without opening a real shift
   if (!posSession && view !== 'session' && !isItAdmin) {
     return (
       <div className="h-screen bg-[#111311] flex flex-col overflow-hidden">
@@ -458,33 +463,26 @@ export default function POSPage() {
             </button>
           </div>
         </header>
+        {/* Every authenticated user opens their own shift — no "ask manager" gate */}
         <div className="flex-1 flex items-center justify-center p-6">
-          {canManageShift ? (
-            <div className="w-full max-w-sm bg-[#191c19] border border-[#2b2f2b] rounded-3xl p-6 space-y-5">
-              <div className="text-center">
-                <div className="w-14 h-14 rounded-2xl bg-[#349f2d]/10 border border-[#349f2d]/30 flex items-center justify-center mx-auto mb-3">
-                  <Lock size={24} className="text-[#5ecf4f]"/>
-                </div>
-                <h2 className="text-lg font-bold text-[#f4efeb] font-serif">Open Today's Shift</h2>
-                <p className="text-xs text-[#aba8a4] mt-1">A shift must be open before you can take orders.</p>
+          <div className="w-full max-w-sm bg-[#191c19] border border-[#2b2f2b] rounded-3xl p-6 space-y-5">
+            <div className="text-center">
+              <div className="w-14 h-14 rounded-2xl bg-[#349f2d]/10 border border-[#349f2d]/30 flex items-center justify-center mx-auto mb-3">
+                <Lock size={24} className="text-[#5ecf4f]"/>
               </div>
-              <div>
-                <p className="text-xs text-[#aba8a4] mb-2">Opening Cash Float</p>
-                <p className="text-2xl font-bold text-[#5ecf4f] font-mono text-center mb-3">{formatCurrency(parseFloat(openingFloatStr) || 0)}</p>
-                <Numpad value={openingFloatStr} onChange={setOpeningFloatStr}/>
-              </div>
-              <button onClick={openSession} disabled={sessionLoading}
-                className="w-full bg-[#349f2d] hover:bg-[#287e22] disabled:opacity-40 text-white rounded-2xl py-3.5 font-bold text-sm transition-all active:scale-[0.98] shadow-[0_0_20px_rgba(52,159,45,0.3)]">
-                {sessionLoading ? 'Opening…' : 'Open Shift & Start Selling'}
-              </button>
+              <h2 className="text-lg font-bold text-[#f4efeb] font-serif">Open Today's Shift</h2>
+              <p className="text-xs text-[#aba8a4] mt-1">Enter the cash float in the drawer to begin. Required for accounting.</p>
             </div>
-          ) : (
-            <div className="text-center py-12">
-              <Lock size={40} className="mx-auto mb-4 text-[#2b2f2b]"/>
-              <h2 className="text-lg font-bold text-[#f4efeb] mb-2">No Active Shift</h2>
-              <p className="text-sm text-[#aba8a4]">Ask your Manager or Owner to open a shift<br/>before orders can be taken.</p>
+            <div>
+              <p className="text-xs text-[#aba8a4] mb-2">Opening Cash Float (GH₵)</p>
+              <p className="text-2xl font-bold text-[#5ecf4f] font-mono text-center mb-3">{formatCurrency(parseFloat(openingFloatStr) || 0)}</p>
+              <Numpad value={openingFloatStr} onChange={setOpeningFloatStr}/>
             </div>
-          )}
+            <button onClick={openSession} disabled={sessionLoading}
+              className="w-full bg-[#349f2d] hover:bg-[#287e22] disabled:opacity-40 text-white rounded-2xl py-3.5 font-bold text-sm transition-all active:scale-[0.98] shadow-[0_0_20px_rgba(52,159,45,0.3)]">
+              {sessionLoading ? 'Opening…' : 'Open Shift & Start Selling'}
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -638,7 +636,8 @@ export default function POSPage() {
                   </div>
                 </div>
               </div>
-              {canManageShift && (
+              {/* All authenticated users can close a shift */}
+              {true && (
                 <div className="bg-[#191c19] border border-[#2b2f2b] rounded-2xl p-4 space-y-3">
                   <p className="text-sm font-semibold text-[#f4efeb]">Close Shift — Enter Physical Cash Count</p>
                   <div className="bg-[#111311] rounded-xl p-3">
@@ -658,27 +657,20 @@ export default function POSPage() {
               )}
             </div>
           ) : (
-            /* Open session */
-            canManageShift ? (
-              <div className="bg-[#191c19] border border-[#2b2f2b] rounded-2xl p-4 space-y-4">
-                <div className="flex items-center gap-2 text-[#aba8a4]"><Lock size={16}/><span className="font-semibold text-sm text-[#f4efeb]">No Active Session</span></div>
-                <p className="text-xs text-[#aba8a4]">Open a new shift to start taking orders.</p>
-                <div>
-                  <p className="text-xs text-[#aba8a4] mb-2">Opening Cash Float</p>
-                  <p className="text-2xl font-bold text-[#5ecf4f] font-mono mb-3">{formatCurrency(parseFloat(openingFloatStr) || 0)}</p>
-                  <Numpad value={openingFloatStr} onChange={setOpeningFloatStr}/>
-                </div>
-                <button onClick={openSession} disabled={sessionLoading}
-                  className="w-full bg-[#349f2d] hover:bg-[#287e22] disabled:opacity-40 text-white rounded-xl py-3 font-semibold text-sm transition-colors">
-                  {sessionLoading ? 'Opening…' : 'Open Shift'}
-                </button>
+            /* No active session — all authenticated users can open a new shift */
+            <div className="bg-[#191c19] border border-[#2b2f2b] rounded-2xl p-4 space-y-4">
+              <div className="flex items-center gap-2 text-[#aba8a4]"><Lock size={16}/><span className="font-semibold text-sm text-[#f4efeb]">No Active Session</span></div>
+              <p className="text-xs text-[#aba8a4]">Open a new shift to start taking orders.</p>
+              <div>
+                <p className="text-xs text-[#aba8a4] mb-2">Opening Cash Float</p>
+                <p className="text-2xl font-bold text-[#5ecf4f] font-mono mb-3">{formatCurrency(parseFloat(openingFloatStr) || 0)}</p>
+                <Numpad value={openingFloatStr} onChange={setOpeningFloatStr}/>
               </div>
-            ) : (
-              <div className="text-center py-12 text-[#aba8a4] text-sm">
-                <Lock size={32} className="mx-auto mb-3 opacity-40"/>
-                <p>No active session. Ask the Owner to open a shift.</p>
-              </div>
-            )
+              <button onClick={openSession} disabled={sessionLoading}
+                className="w-full bg-[#349f2d] hover:bg-[#287e22] disabled:opacity-40 text-white rounded-xl py-3 font-semibold text-sm transition-colors">
+                {sessionLoading ? 'Opening…' : 'Open Shift'}
+              </button>
+            </div>
           )}
         </div>
       </div>
