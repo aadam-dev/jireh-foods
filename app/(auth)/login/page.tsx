@@ -118,9 +118,18 @@ export default function LoginPage() {
           </form>
         </div>
 
-        <p className="text-center text-xs text-[#aba8a4]/60 mt-6">
-          © {new Date().getFullYear()} Jireh Natural Foods · Adenta, Accra
-        </p>
+        <div className="text-center mt-6 space-y-1">
+          <p className="text-xs text-[#aba8a4]/60">
+            © {new Date().getFullYear()} Jireh Natural Foods · Adenta, Accra
+          </p>
+          <p className="text-[11px] text-[#aba8a4]/40">
+            Powered by{' '}
+            <a href="mailto:aadamsays@gmail.com" className="hover:text-[#aba8a4]/70 transition-colors underline underline-offset-2">
+              Aadamsays
+            </a>
+            {' '}· +233 263 039 818
+          </p>
+        </div>
       </div>
     </div>
   );
