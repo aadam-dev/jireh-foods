@@ -90,23 +90,23 @@ export default function DashboardPage() {
   const trendData = (data?.trendChart ?? []).map(d => ({ ...d, date: d.date.slice(5) })); // MM-DD
 
   return (
-    <div className="p-6 space-y-6 max-w-7xl mx-auto">
+    <div className="p-4 sm:p-6 space-y-4 sm:space-y-6 max-w-7xl mx-auto">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-start sm:items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-[#f4efeb] font-serif">Dashboard</h1>
-          <p className="text-sm text-[#aba8a4] mt-0.5">
+          <h1 className="text-xl sm:text-2xl font-bold text-[#f4efeb] font-serif">Dashboard</h1>
+          <p className="text-xs sm:text-sm text-[#aba8a4] mt-0.5">
             {new Date().toLocaleDateString('en-GH', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
           </p>
         </div>
         {/* Session status pill */}
         {data?.activeSession ? (
-          <Link href="/pos" className="flex items-center gap-2 px-4 py-2 bg-[#349f2d]/10 border border-[#349f2d]/30 rounded-xl text-sm text-[#5ecf4f] hover:bg-[#349f2d]/20 transition-colors">
-            <Unlock size={14}/> Shift Open · {data.activeSession.openedByUser?.name}
+          <Link href="/pos" className="flex items-center gap-2 px-3 sm:px-4 py-2 bg-[#349f2d]/10 border border-[#349f2d]/30 rounded-xl text-xs sm:text-sm text-[#5ecf4f] hover:bg-[#349f2d]/20 transition-colors shrink-0">
+            <Unlock size={13}/> <span className="hidden sm:inline">Shift Open ·</span> {data.activeSession.openedByUser?.name}
           </Link>
         ) : (
-          <Link href="/pos" className="flex items-center gap-2 px-4 py-2 bg-[#191c19] border border-[#2b2f2b] rounded-xl text-sm text-[#aba8a4] hover:border-[#404540] transition-colors">
-            <Lock size={14}/> No Active Shift
+          <Link href="/pos" className="flex items-center gap-2 px-3 sm:px-4 py-2 bg-[#191c19] border border-[#2b2f2b] rounded-xl text-xs sm:text-sm text-[#aba8a4] hover:border-[#404540] transition-colors shrink-0">
+            <Lock size={13}/> <span className="hidden sm:inline">No Active Shift</span><span className="sm:hidden">POS</span>
           </Link>
         )}
       </div>

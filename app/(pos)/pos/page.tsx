@@ -144,6 +144,9 @@ export default function POSPage() {
   const [tenderedStr, setTenderedStr] = useState('0');
   const [paymentRef, setPaymentRef] = useState('');
 
+  // Mobile tab: 'menu' | 'cart' (only used on small screens)
+  const [mobileTab, setMobileTab] = useState<'menu'|'cart'>('menu');
+
   // Session
   const [posSession, setPosSession] = useState<PosSession | null>(null);
   const [sessionChecked, setSessionChecked] = useState(false);
@@ -211,10 +214,9 @@ export default function POSPage() {
     if (res.ok) setTodayOrders(await res.json());
   };
 
+  // Load menu and receipt settings immediately — no auth needed
   useEffect(() => {
     fetchMenu();
-    fetchSession();
-    // Load receipt-relevant settings (business name + footer)
     fetch('/api/admin/settings')
       .then(r => r.ok ? r.json() : null)
       .then(data => {
@@ -224,8 +226,21 @@ export default function POSPage() {
           receiptFooter: data.receipt_footer ?? 'Thank you for your patronage!',
         });
       })
-      .catch(() => {}); // silently fall back to defaults
+      .catch(() => {});
   }, []);
+
+  // Session check — reactive on auth resolution.
+  // IT admin gets an instant fast-path (demo mode, no shift ever needed).
+  // Everyone else fetches /api/pos/sessions from the DB.
+  useEffect(() => {
+    if (authStatus !== 'authenticated') return;
+    if (isItAdmin) {
+      setSessionChecked(true); // no DB call — demo mode bypasses shift gate
+    } else {
+      fetchSession();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authStatus, isItAdmin]);
   useEffect(() => { if (authSession?.user) fetchOrders(); }, [authSession, posSession]);
 
   // Cart helpers
@@ -731,18 +746,19 @@ export default function POSPage() {
           <span className="text-xs font-mono text-[#aba8a4] hidden md:block">
             {currentTime.toLocaleTimeString('en-GH', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
           </span>
-          {/* Session pill */}
+          {/* Session pill — hidden on mobile (shift is in bottom nav) */}
           <button onClick={() => setView('session')}
-            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-medium border transition-all ${posSession ? 'bg-[#349f2d]/20 text-[#5ecf4f] border-[#349f2d]/40' : 'text-[#aba8a4] border-[#2b2f2b] hover:border-[#404540]'}`}>
+            className={`hidden md:flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-medium border transition-all ${posSession ? 'bg-[#349f2d]/20 text-[#5ecf4f] border-[#349f2d]/40' : 'text-[#aba8a4] border-[#2b2f2b] hover:border-[#404540]'}`}>
             {posSession ? <><Unlock size={12}/> Shift Open</> : <><Lock size={12}/> No Shift</>}
           </button>
+          {/* Orders — hidden on mobile (orders is in bottom nav) */}
           <button onClick={() => { setView('orders'); fetchOrders(); }}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-medium text-[#aba8a4] border border-[#2b2f2b] hover:border-[#404540] transition-all">
+            className="hidden md:flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-medium text-[#aba8a4] border border-[#2b2f2b] hover:border-[#404540] transition-all">
             <Clock size={12}/> Orders
           </button>
           {user && ['OWNER', 'MANAGER'].includes(user.role) && (
             <Link href="/admin" className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-medium text-[#aba8a4] border border-[#2b2f2b] hover:border-[#404540] transition-all">
-              <LayoutDashboard size={12}/> Admin
+              <LayoutDashboard size={12}/> <span className="hidden sm:inline">Admin</span>
             </Link>
           )}
           <button onClick={() => signOut({ callbackUrl: '/login' })} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs text-[#aba8a4] border border-[#2b2f2b] hover:text-red-400 hover:border-red-500/40 transition-all">
@@ -751,9 +767,9 @@ export default function POSPage() {
         </div>
       </header>
 
-      <div className="flex-1 flex min-h-0">
-        {/* Left: menu */}
-        <div className="flex-1 flex flex-col min-w-0 border-r border-[#2b2f2b]">
+      <div className="flex-1 flex min-h-0 overflow-hidden">
+        {/* Left: menu — full on desktop; on mobile shown only when mobileTab=menu */}
+        <div className={`${mobileTab === 'cart' ? 'hidden' : 'flex'} md:flex flex-col flex-1 min-w-0 md:border-r border-[#2b2f2b]`}>
           <div className="shrink-0 px-3 pt-3 pb-0 space-y-2">
             <div className="relative">
               <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#aba8a4]"/>
@@ -800,8 +816,8 @@ export default function POSPage() {
           </div>
         </div>
 
-        {/* Right: cart */}
-        <div className="w-72 xl:w-80 shrink-0 flex flex-col bg-[#0a0b0a]">
+        {/* Right: cart — fixed-width panel on desktop; full-width on mobile when mobileTab=cart */}
+        <div className={`${mobileTab === 'cart' ? 'flex' : 'hidden'} md:flex flex-col w-full md:w-72 xl:w-80 shrink-0 bg-[#0a0b0a]`}>
           <div className="shrink-0 flex items-center justify-between px-4 py-3 border-b border-[#2b2f2b]">
             <div className="flex items-center gap-2">
               <ShoppingCart size={15} className="text-[#5ecf4f]"/>
@@ -906,6 +922,41 @@ export default function POSPage() {
           </div>
         </div>
       </div>
+
+      {/* Mobile bottom tab nav — only visible on small screens, replaces header session/orders buttons */}
+      <nav className="md:hidden shrink-0 flex border-t border-[#2b2f2b] bg-[#0a0b0a]">
+        <button
+          onClick={() => setMobileTab('menu')}
+          className={`flex-1 flex flex-col items-center py-3 gap-1 transition-colors ${mobileTab === 'menu' ? 'text-[#5ecf4f]' : 'text-[#aba8a4]'}`}>
+          <Search size={20}/>
+          <span className="text-[10px] font-medium">Menu</span>
+        </button>
+        <button
+          onClick={() => setMobileTab('cart')}
+          className={`flex-1 flex flex-col items-center py-3 gap-1 transition-colors ${mobileTab === 'cart' ? 'text-[#5ecf4f]' : 'text-[#aba8a4]'}`}>
+          <div className="relative">
+            <ShoppingCart size={20}/>
+            {cart.reduce((s, c) => s + c.quantity, 0) > 0 && (
+              <span className="absolute -top-1.5 -right-2.5 bg-[#349f2d] text-white text-[9px] font-bold min-w-[16px] h-4 flex items-center justify-center rounded-full px-1">
+                {cart.reduce((s, c) => s + c.quantity, 0)}
+              </span>
+            )}
+          </div>
+          <span className="text-[10px] font-medium">Cart</span>
+        </button>
+        <button
+          onClick={() => { setView('orders'); fetchOrders(); }}
+          className="flex-1 flex flex-col items-center py-3 gap-1 text-[#aba8a4] transition-colors">
+          <Clock size={20}/>
+          <span className="text-[10px] font-medium">Orders</span>
+        </button>
+        <button
+          onClick={() => setView('session')}
+          className={`flex-1 flex flex-col items-center py-3 gap-1 transition-colors ${posSession ? 'text-[#5ecf4f]' : 'text-yellow-400'}`}>
+          {posSession ? <Unlock size={20}/> : <Lock size={20}/>}
+          <span className="text-[10px] font-medium">Shift</span>
+        </button>
+      </nav>
 
       {/* Global print style */}
       <style jsx global>{`

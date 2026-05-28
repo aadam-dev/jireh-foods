@@ -151,7 +151,7 @@ export default function MenuPage() {
   const activeCat = categories.find(c => c.id === activeCategory);
 
   return (
-    <div className="p-6 max-w-7xl mx-auto space-y-5">
+    <div className="p-4 sm:p-6 max-w-7xl mx-auto space-y-5">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-[#f4efeb] font-serif">Menu</h1>
@@ -169,18 +169,18 @@ export default function MenuPage() {
           <div className="w-6 h-6 border-2 border-[#349f2d] border-t-transparent rounded-full animate-spin" />
         </div>
       ) : (
-        <div className="flex gap-5">
-          {/* Category list */}
-          <div className="w-52 shrink-0 space-y-1">
+        <div className="flex flex-col md:flex-row gap-5">
+          {/* Category list — horizontal scroll pill row on mobile, vertical sidebar on desktop */}
+          <div className="md:w-52 shrink-0 flex md:flex-col gap-1.5 overflow-x-auto pb-1 md:pb-0 scrollbar-none">
             {categories.map(cat => (
               <button
                 key={cat.id}
                 onClick={() => setActiveCategory(cat.id)}
                 className={[
-                  'w-full text-left px-3 py-2.5 rounded-xl text-sm transition-all flex items-center justify-between gap-2',
+                  'shrink-0 md:w-full text-left px-3 py-2 md:py-2.5 rounded-xl text-sm transition-all flex items-center gap-2 whitespace-nowrap',
                   cat.id === activeCategory
                     ? 'bg-[#349f2d]/20 text-[#5ecf4f] border border-[#349f2d]/40'
-                    : 'text-[#aba8a4] hover:text-[#f4efeb] hover:bg-white/5 border border-transparent',
+                    : 'text-[#aba8a4] hover:text-[#f4efeb] hover:bg-white/5 border border-[#2b2f2b]',
                 ].join(' ')}
               >
                 <span className="truncate font-medium">{cat.name}</span>

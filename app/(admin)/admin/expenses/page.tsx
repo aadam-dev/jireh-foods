@@ -91,7 +91,7 @@ export default function ExpensesPage() {
   ];
 
   return (
-    <div className="p-6 max-w-7xl mx-auto space-y-5">
+    <div className="p-4 sm:p-6 max-w-7xl mx-auto space-y-5">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-[#f4efeb] font-serif">Expenses</h1>

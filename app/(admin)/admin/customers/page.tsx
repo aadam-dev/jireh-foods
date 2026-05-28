@@ -62,7 +62,7 @@ export default function CustomersPage() {
   const handleKey = (e: React.KeyboardEvent) => { if (e.key === 'Enter') search(); };
 
   return (
-    <div className="p-6 max-w-5xl mx-auto space-y-6">
+    <div className="p-4 sm:p-6 max-w-5xl mx-auto space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-[#f4efeb] font-serif">Customer Lookup</h1>
         <p className="text-sm text-[#aba8a4] mt-0.5">Search orders by customer phone or name</p>
