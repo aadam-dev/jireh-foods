@@ -110,10 +110,10 @@ function Receipt80mm({
       <div className="text-center">
         {receiptFooter.split('\n').map((line, i) => <div key={i}>{line}</div>)}
       </div>
-      {/* Developer credit — best practice: small, below all transactional content */}
+      {/* Developer credit */}
       <div className="border-t border-dashed border-black mt-2 pt-1 text-center text-[9px] text-gray-500">
-        <div>System by Aadamsays</div>
-        <div>aadamsays@gmail.com · +233263039818</div>
+        <div>powered by aadam</div>
+        <div>aadam.vercel.app · +233 263 039 818</div>
       </div>
     </div>
   );
@@ -332,7 +332,8 @@ export default function POSPage() {
   if (lastOrder) {
     return (
       <div className="h-screen bg-[#111311] flex items-center justify-center p-4">
-        <div className="text-center max-w-sm w-full">
+        {/* screen-only success UI — hidden when printing so only the receipt shows */}
+        <div className="text-center max-w-sm w-full print:hidden">
           <div className="w-16 h-16 rounded-full bg-[#349f2d]/20 border border-[#349f2d]/40 flex items-center justify-center mx-auto mb-4">
             <CheckCircle2 size={28} className="text-[#5ecf4f]" />
           </div>

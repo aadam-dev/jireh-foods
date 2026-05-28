@@ -123,9 +123,9 @@ export default function LoginPage() {
             © {new Date().getFullYear()} Jireh Natural Foods · Adenta, Accra
           </p>
           <p className="text-[11px] text-[#aba8a4]/40">
-            Powered by{' '}
-            <a href="mailto:aadamsays@gmail.com" className="hover:text-[#aba8a4]/70 transition-colors underline underline-offset-2">
-              Aadamsays
+            powered by{' '}
+            <a href="https://aadam.vercel.app" target="_blank" rel="noopener noreferrer" className="hover:text-[#aba8a4]/70 transition-colors underline underline-offset-2">
+              aadam
             </a>
             {' '}· +233 263 039 818
           </p>

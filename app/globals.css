@@ -36,7 +36,21 @@ body {
   }
 }
 
-/* ── Print styles for reports ─────────────────────────────────────────────── */
+/* ── Thermal receipt print (80mm POS paper) ────────────────────────────────── */
+/* Triggered from POS success screen — only #receipt-print renders */
+@media print {
+  @page {
+    size: 80mm auto;   /* thermal roll width; height auto-expands with content */
+    margin: 4mm 2mm;   /* small gutter, no wasted paper */
+  }
+
+  /* Hide the screen success UI; only the receipt div renders */
+  .print\:hidden {
+    display: none !important;
+  }
+}
+
+/* ── Print styles for admin reports (A4) ──────────────────────────────────── */
 @media print {
   /* Reset dark theme to white paper */
   body {
