@@ -15,9 +15,11 @@ export const authConfig: NextAuthConfig = {
       const isPosRoute = nextUrl.pathname.startsWith('/pos') || nextUrl.pathname.startsWith('/api/pos');
       const isPosOnlyRole = role === 'CASHIER' || role === 'STAFF';
 
-      // Redirect logged-in users away from login
+      // Redirect logged-in users away from login — respect callbackUrl
       if (isLoggedIn && isLoginPage) {
-        return Response.redirect(new URL(isPosOnlyRole ? '/pos' : '/admin', nextUrl));
+        const callbackUrl = nextUrl.searchParams.get('callbackUrl') ?? '';
+        const wantsPOS = isPosOnlyRole || callbackUrl.includes('/pos');
+        return Response.redirect(new URL(wantsPOS ? '/pos' : '/admin', nextUrl));
       }
 
       // Protect admin routes — redirect POS-only roles to /pos

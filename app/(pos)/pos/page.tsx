@@ -417,10 +417,10 @@ export default function POSPage() {
   }
 
   /* ─── Mandatory session gate ─────────────────────────────────────── */
-  const canManageShift = !!user; // all authenticated staff can open/close shifts
-
-  // While NextAuth or POS session is still loading, show spinner
-  if (!sessionChecked || authStatus === 'loading') {
+  // Wait until NextAuth is fully settled (authenticated) AND POS session fetch is done.
+  // Checking !== 'authenticated' (not just === 'loading') prevents the race where
+  // sessionChecked fires before the JWT resolves, leaving user null and canManageShift false.
+  if (authStatus !== 'authenticated' || !sessionChecked) {
     return (
       <div className="h-screen bg-[#111311] flex items-center justify-center">
         <div className="text-center">
@@ -430,6 +430,10 @@ export default function POSPage() {
       </div>
     );
   }
+
+  // At this point authStatus === 'authenticated', so user is guaranteed to be set
+  const canManageShift = true; // all authenticated staff can open/close shifts
+  const isAdminRole = ['OWNER', 'MANAGER', 'ACCOUNTANT'].includes(user?.role ?? '');
 
   // No open session and not currently in the session management view → gate
   // IT admin bypasses this gate — they can demo without opening a real shift
@@ -443,9 +447,16 @@ export default function POSPage() {
             </div>
             <span className="text-sm font-semibold text-[#f4efeb]">Jireh POS</span>
           </div>
-          <button onClick={() => signOut({ callbackUrl: '/login' })} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs text-[#aba8a4] border border-[#2b2f2b] hover:text-red-400 hover:border-red-500/40 transition-all">
-            <LogOut size={12}/>
-          </button>
+          <div className="flex items-center gap-1.5">
+            {isAdminRole && (
+              <Link href="/admin" className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-medium text-[#aba8a4] border border-[#2b2f2b] hover:border-[#404540] hover:text-[#f4efeb] transition-all">
+                <LayoutDashboard size={12}/> Admin Panel
+              </Link>
+            )}
+            <button onClick={() => signOut({ callbackUrl: '/login' })} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs text-[#aba8a4] border border-[#2b2f2b] hover:text-red-400 hover:border-red-500/40 transition-all">
+              <LogOut size={12}/>
+            </button>
+          </div>
         </header>
         <div className="flex-1 flex items-center justify-center p-6">
           {canManageShift ? (
