@@ -1,36 +1,48 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Save, Settings2, Receipt, DollarSign, Building2, AlertCircle, Leaf, Package } from 'lucide-react';
-import { Card, CardHeader, CardTitle } from '@/src/components/ui/Card';
+import {
+  Save, Building2, Phone, MapPin, DollarSign, Receipt,
+  Package, AlertCircle, CheckCircle2, Tag, Loader2, Info,
+} from 'lucide-react';
+import { Card } from '@/src/components/ui/Card';
 import { Input } from '@/src/components/ui/Input';
 import { Button } from '@/src/components/ui/Button';
+import { formatCurrency } from '@/src/lib/utils';
 
 interface SettingsMap {
   business_name: string;
+  business_phone: string;
+  business_address: string;
   currency_symbol: string;
   gra_tin: string;
   tax_rate: string;
+  receipt_header: string;
   receipt_footer: string;
   low_stock_alert_threshold: string;
 }
 
 const DEFAULTS: SettingsMap = {
   business_name: 'Jireh Natural Foods',
+  business_phone: '055 113 3481',
+  business_address: 'Adenta Housing Down, Accra',
   currency_symbol: 'GH₵',
   gra_tin: '',
   tax_rate: '0',
+  receipt_header: 'Fresh & Healthy — Always',
   receipt_footer: 'Thank you for dining with us!',
   low_stock_alert_threshold: '5',
 };
 
+type SectionKey = 'business' | 'tax' | 'receipt' | 'alerts';
+
 export default function SettingsPage() {
-  const [values, setValues] = useState<SettingsMap>(DEFAULTS);
+  const [values, setValues]     = useState<SettingsMap>(DEFAULTS);
   const [original, setOriginal] = useState<SettingsMap>(DEFAULTS);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState<string | null>(null);
-  const [saved, setSaved] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading]   = useState(true);
+  const [saving, setSaving]     = useState<SectionKey | null>(null);
+  const [saved, setSaved]       = useState<SectionKey | null>(null);
+  const [error, setError]       = useState<string | null>(null);
 
   useEffect(() => {
     fetch('/api/admin/settings')
@@ -44,71 +56,90 @@ export default function SettingsPage() {
       .finally(() => setLoading(false));
   }, []);
 
-  const saveSetting = async (key: keyof SettingsMap) => {
-    setSaving(key);
+  const set = (key: keyof SettingsMap) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
+    setValues(v => ({ ...v, [key]: e.target.value }));
+
+  const sectionDirty = (keys: (keyof SettingsMap)[]) => keys.some(k => values[k] !== original[k]);
+
+  const saveSection = async (section: SectionKey, keys: (keyof SettingsMap)[]) => {
+    setSaving(section);
     setError(null);
     try {
-      const res = await fetch('/api/admin/settings', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ key, value: values[key] }),
-      });
-      if (!res.ok) {
-        const err = await res.json();
-        setError(err.error ?? 'Failed to save');
-        return;
-      }
-      setOriginal(prev => ({ ...prev, [key]: values[key] }));
-      setSaved(key);
-      setTimeout(() => setSaved(null), 2000);
-    } catch {
-      setError('Network error — please try again');
+      const changed = keys.filter(k => values[k] !== original[k]);
+      await Promise.all(
+        changed.map(key =>
+          fetch('/api/admin/settings', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ key, value: values[key] }),
+          }).then(async r => {
+            if (!r.ok) {
+              const e = await r.json();
+              throw new Error(e.error ?? 'Failed to save');
+            }
+          })
+        )
+      );
+      setOriginal(prev => ({ ...prev, ...Object.fromEntries(keys.map(k => [k, values[k]])) }));
+      setSaved(section);
+      setTimeout(() => setSaved(null), 2500);
+    } catch (err: any) {
+      setError(err.message ?? 'Failed to save — please try again');
     } finally {
       setSaving(null);
     }
   };
 
-  const field = (key: keyof SettingsMap, label: string, hint: string, type = 'text') => (
-    <div key={key}>
-      <div className="flex items-end gap-2">
-        <div className="flex-1">
-          <Input
-            label={label}
-            type={type}
-            step={type === 'number' ? '0.01' : undefined}
-            value={values[key]}
-            onChange={e => setValues(v => ({ ...v, [key]: e.target.value }))}
-            disabled={loading}
-          />
-        </div>
-        <Button
-          size="sm"
-          variant={saved === key ? 'success' : 'primary'}
-          loading={saving === key}
-          disabled={values[key] === original[key] || loading}
-          onClick={() => saveSetting(key)}
-          icon={<Save size={12} />}
-        >
-          {saved === key ? 'Saved!' : 'Save'}
-        </Button>
-      </div>
-      <p className="text-[10px] text-[#aba8a4] mt-1.5 ml-0.5">{hint}</p>
-    </div>
+  const SectionSaveBtn = ({ section, keys }: { section: SectionKey; keys: (keyof SettingsMap)[] }) => (
+    <Button
+      size="sm"
+      variant={saved === section ? 'success' : 'primary'}
+      loading={saving === section}
+      disabled={!sectionDirty(keys) || loading}
+      onClick={() => saveSection(section, keys)}
+      icon={saved === section ? <CheckCircle2 size={13} /> : <Save size={13} />}
+    >
+      {saved === section ? 'Saved!' : 'Save changes'}
+    </Button>
   );
+
+  const taxRate = parseFloat(values.tax_rate) || 0;
+  const exampleOrderTotal = 80;
+  const exampleTax = exampleOrderTotal * taxRate;
 
   if (loading) {
     return (
-      <div className="flex justify-center py-16">
-        <div className="w-6 h-6 border-2 border-[#349f2d] border-t-transparent rounded-full animate-spin" />
+      <div className="flex justify-center items-center py-24">
+        <Loader2 size={22} className="animate-spin text-[#349f2d]" />
       </div>
     );
   }
 
   return (
-    <div className="p-4 sm:p-6 max-w-2xl mx-auto space-y-6">
+    <div className="p-4 sm:p-6 max-w-3xl mx-auto space-y-6">
+
+      {/* Header */}
       <div>
         <h1 className="text-2xl font-bold text-[#f4efeb] font-serif">Settings</h1>
-        <p className="text-sm text-[#aba8a4] mt-0.5">System-wide configuration — Owner only</p>
+        <p className="text-sm text-[#aba8a4] mt-0.5">System-wide configuration · Owner only</p>
+      </div>
+
+      {/* Status bar */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        {[
+          { label: 'Business', value: values.business_name, icon: <Building2 size={13}/> },
+          { label: 'Currency', value: values.currency_symbol, icon: <Tag size={13}/> },
+          { label: 'VAT', value: taxRate > 0 ? `${(taxRate * 100).toFixed(1)}%` : 'Off', icon: <DollarSign size={13}/>, warn: taxRate > 0 },
+          { label: 'Low-stock at', value: `≤ ${values.low_stock_alert_threshold} units`, icon: <Package size={13}/> },
+        ].map(s => (
+          <div key={s.label} className={`rounded-2xl border px-4 py-3 ${s.warn ? 'bg-yellow-500/5 border-yellow-500/20' : 'bg-[#191c19] border-[#2b2f2b]'}`}>
+            <div className={`flex items-center gap-1.5 mb-1 ${s.warn ? 'text-yellow-400' : 'text-[#aba8a4]'}`}>
+              {s.icon}
+              <span className="text-[10px] uppercase tracking-wide">{s.label}</span>
+            </div>
+            <p className={`text-sm font-semibold truncate ${s.warn ? 'text-yellow-300' : 'text-[#f4efeb]'}`}>{s.value}</p>
+          </div>
+        ))}
       </div>
 
       {error && (
@@ -118,81 +149,224 @@ export default function SettingsPage() {
         </div>
       )}
 
-      {/* Business */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Building2 size={15} className="text-[#5ecf4f]" /> Business Info
-          </CardTitle>
-        </CardHeader>
-        <div className="space-y-5">
-          {field('business_name', 'Business Name', 'Appears on receipts and reports')}
-          {field('currency_symbol', 'Currency Symbol', 'Displayed next to amounts throughout the system')}
+      {/* ── Business Info ── */}
+      <Card padding="md">
+        <div className="flex items-center justify-between mb-5">
+          <div className="flex items-center gap-2">
+            <Building2 size={15} className="text-[#5ecf4f]" />
+            <h2 className="text-sm font-semibold text-[#f4efeb]">Business Info</h2>
+          </div>
+          <SectionSaveBtn section="business" keys={['business_name','business_phone','business_address','currency_symbol']} />
+        </div>
+        <div className="space-y-4">
+          <div className="grid sm:grid-cols-2 gap-4">
+            <Input
+              label="Business Name"
+              value={values.business_name}
+              onChange={set('business_name')}
+              disabled={loading}
+            />
+            <Input
+              label="Currency Symbol"
+              value={values.currency_symbol}
+              onChange={set('currency_symbol')}
+              disabled={loading}
+            />
+          </div>
+          <div className="grid sm:grid-cols-2 gap-4">
+            <div>
+              <Input
+                label="Phone Number"
+                value={values.business_phone}
+                onChange={set('business_phone')}
+                placeholder="055 113 3481"
+                disabled={loading}
+              />
+              <div className="flex items-center gap-1.5 mt-1.5">
+                <Phone size={10} className="text-[#aba8a4]" />
+                <p className="text-[10px] text-[#aba8a4]">Printed on receipts</p>
+              </div>
+            </div>
+            <div>
+              <Input
+                label="Address"
+                value={values.business_address}
+                onChange={set('business_address')}
+                placeholder="Adenta Housing Down, Accra"
+                disabled={loading}
+              />
+              <div className="flex items-center gap-1.5 mt-1.5">
+                <MapPin size={10} className="text-[#aba8a4]" />
+                <p className="text-[10px] text-[#aba8a4]">Shown on reports and invoices</p>
+              </div>
+            </div>
+          </div>
         </div>
       </Card>
 
-      {/* Tax / GRA */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <DollarSign size={15} className="text-[#5ecf4f]" /> Tax & GRA
-          </CardTitle>
-        </CardHeader>
-        <div className="space-y-5">
-          {field('tax_rate', 'VAT / Composite Levy Rate', 'Enter as decimal: 0 = no tax · 0.15 = 15% Ghana composite levy. Set to 0 until GRA registered.', 'number')}
-          {field('gra_tin', 'GRA TIN', 'Tax Identification Number — printed on receipts once registered')}
+      {/* ── Tax & GRA ── */}
+      <Card padding="md">
+        <div className="flex items-center justify-between mb-5">
+          <div className="flex items-center gap-2">
+            <DollarSign size={15} className="text-[#5ecf4f]" />
+            <h2 className="text-sm font-semibold text-[#f4efeb]">Tax & GRA</h2>
+          </div>
+          <SectionSaveBtn section="tax" keys={['tax_rate','gra_tin']} />
+        </div>
+        <div className="space-y-4">
+          <div className="grid sm:grid-cols-2 gap-4">
+            <div>
+              <Input
+                label="VAT / Composite Levy Rate"
+                type="number"
+                step="0.01"
+                min="0"
+                max="1"
+                value={values.tax_rate}
+                onChange={set('tax_rate')}
+                disabled={loading}
+              />
+              <p className="text-[10px] text-[#aba8a4] mt-1.5 ml-0.5">Decimal: 0 = off · 0.15 = 15% Ghana composite levy</p>
+            </div>
+            <div>
+              <Input
+                label="GRA TIN"
+                value={values.gra_tin}
+                onChange={set('gra_tin')}
+                placeholder="C000000000"
+                disabled={loading}
+              />
+              <p className="text-[10px] text-[#aba8a4] mt-1.5 ml-0.5">Printed on receipts once registered with GRA</p>
+            </div>
+          </div>
 
-          {parseFloat(values.tax_rate) > 0 && (
-            <div className="flex items-start gap-2.5 bg-yellow-500/5 border border-yellow-500/20 rounded-xl p-3">
-              <AlertCircle size={14} className="text-yellow-400 shrink-0 mt-0.5" />
-              <p className="text-xs text-yellow-300 leading-relaxed">
-                Tax is <strong>active</strong> at {(parseFloat(values.tax_rate) * 100).toFixed(1)}%.
-                Ensure your GRA TIN is entered and you're registered before enabling this in production.
-              </p>
+          {/* Tax preview */}
+          {taxRate > 0 ? (
+            <div className="bg-yellow-500/5 border border-yellow-500/20 rounded-xl p-4">
+              <div className="flex items-start gap-2.5">
+                <AlertCircle size={14} className="text-yellow-400 shrink-0 mt-0.5" />
+                <div className="space-y-1">
+                  <p className="text-xs text-yellow-300 font-medium">
+                    VAT is active at {(taxRate * 100).toFixed(1)}%
+                  </p>
+                  <p className="text-[11px] text-yellow-400/80">
+                    Example: GH₵{exampleOrderTotal} order → +{formatCurrency(exampleTax)} tax = <strong>{formatCurrency(exampleOrderTotal + exampleTax)}</strong> charged
+                  </p>
+                  <p className="text-[11px] text-yellow-400/80">Ensure GRA TIN is set and registration is complete before going live.</p>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2.5 bg-[#111311] border border-[#2b2f2b] rounded-xl px-4 py-3">
+              <Info size={13} className="text-[#aba8a4] shrink-0" />
+              <p className="text-[11px] text-[#aba8a4]">Tax is off. Set a rate above 0 when you register with GRA.</p>
             </div>
           )}
         </div>
       </Card>
 
-      {/* Receipts */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Receipt size={15} className="text-[#5ecf4f]" /> Receipts
-          </CardTitle>
-        </CardHeader>
-        <div className="space-y-5">
-          {field('receipt_footer', 'Receipt Footer Message', 'Printed at the bottom of every customer receipt')}
-        </div>
-      </Card>
-
-      {/* Alerts */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Package size={15} className="text-[#5ecf4f]" /> Alerts & Thresholds
-          </CardTitle>
-        </CardHeader>
-        <div className="space-y-5">
-          {field('low_stock_alert_threshold', 'Low Stock Alert Threshold', 'Items at or below this quantity trigger the sidebar badge and are highlighted in Inventory', 'number')}
-        </div>
-      </Card>
-
-      {/* System info */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Settings2 size={15} className="text-[#5ecf4f]" /> About
-          </CardTitle>
-        </CardHeader>
-        <div className="flex items-center gap-4">
-          <div className="w-12 h-12 rounded-2xl bg-[#349f2d]/20 border border-[#349f2d]/40 flex items-center justify-center">
-            <Leaf className="text-[#5ecf4f]" size={22} />
+      {/* ── Receipts ── */}
+      <Card padding="md">
+        <div className="flex items-center justify-between mb-5">
+          <div className="flex items-center gap-2">
+            <Receipt size={15} className="text-[#5ecf4f]" />
+            <h2 className="text-sm font-semibold text-[#f4efeb]">Receipt</h2>
           </div>
+          <SectionSaveBtn section="receipt" keys={['receipt_header','receipt_footer']} />
+        </div>
+        <div className="grid sm:grid-cols-2 gap-6">
+          <div className="space-y-4">
+            <div>
+              <Input
+                label="Tagline (under business name)"
+                value={values.receipt_header}
+                onChange={set('receipt_header')}
+                placeholder="Fresh & Healthy — Always"
+                disabled={loading}
+              />
+              <p className="text-[10px] text-[#aba8a4] mt-1.5 ml-0.5">Printed under the business name at the top</p>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-[#aba8a4] mb-1.5">Footer Message</label>
+              <textarea
+                className="w-full bg-[#0a0b0a] border border-[#2b2f2b] rounded-xl px-3 py-2.5 text-sm text-[#f4efeb] placeholder:text-[#404540] resize-none focus:outline-none focus:ring-1 focus:ring-[#349f2d]/50 focus:border-[#349f2d]/60 transition-colors"
+                rows={3}
+                value={values.receipt_footer}
+                onChange={set('receipt_footer')}
+                placeholder="Thank you for dining with us!"
+                disabled={loading}
+              />
+              <p className="text-[10px] text-[#aba8a4] mt-1 ml-0.5">Printed at the bottom of every receipt</p>
+            </div>
+          </div>
+
+          {/* Live receipt preview */}
           <div>
+            <p className="text-[10px] text-[#aba8a4] uppercase tracking-wide mb-2">Receipt Preview</p>
+            <div className="bg-white text-black rounded-xl p-4 font-mono text-[10px] leading-relaxed shadow-inner">
+              <div className="text-center border-b border-dashed border-gray-300 pb-2 mb-2">
+                <p className="font-bold text-[12px]">{values.business_name.toUpperCase()}</p>
+                <p className="text-gray-500">{values.receipt_header}</p>
+                <p className="text-gray-500">Tel: {values.business_phone}</p>
+                {values.gra_tin && <p className="text-gray-500">TIN: {values.gra_tin}</p>}
+              </div>
+              <div className="space-y-0.5 border-b border-dashed border-gray-300 pb-2 mb-2">
+                <div className="flex justify-between"><span>1× Jollof Rice Med</span><span>GH₵55</span></div>
+                <div className="flex justify-between"><span>2× Sobolo</span><span>GH₵20</span></div>
+              </div>
+              <div className="flex justify-between font-bold border-b border-dashed border-gray-300 pb-2 mb-2">
+                <span>TOTAL</span>
+                <span>{taxRate > 0 ? formatCurrency(75 * (1 + taxRate)) : 'GH₵75'}</span>
+              </div>
+              <div className="text-center text-gray-500 border-t border-dashed border-gray-300 pt-2 mt-2">
+                {values.receipt_footer.split('\n').map((line, i) => <p key={i}>{line}</p>)}
+              </div>
+            </div>
+          </div>
+        </div>
+      </Card>
+
+      {/* ── Alerts & Thresholds ── */}
+      <Card padding="md">
+        <div className="flex items-center justify-between mb-5">
+          <div className="flex items-center gap-2">
+            <Package size={15} className="text-[#5ecf4f]" />
+            <h2 className="text-sm font-semibold text-[#f4efeb]">Inventory Alerts</h2>
+          </div>
+          <SectionSaveBtn section="alerts" keys={['low_stock_alert_threshold']} />
+        </div>
+        <div className="max-w-xs">
+          <Input
+            label="Low Stock Alert Threshold"
+            type="number"
+            min="1"
+            step="1"
+            value={values.low_stock_alert_threshold}
+            onChange={set('low_stock_alert_threshold')}
+            disabled={loading}
+          />
+          <p className="text-[10px] text-[#aba8a4] mt-1.5 ml-0.5">
+            Items at or below this quantity show the red badge in the sidebar and are highlighted in Inventory
+          </p>
+        </div>
+      </Card>
+
+      {/* ── About ── */}
+      <Card padding="md">
+        <div className="flex items-center gap-3">
+          <div className="w-12 h-12 rounded-2xl bg-[#349f2d]/15 border border-[#349f2d]/30 flex items-center justify-center shrink-0">
+            <span className="text-xl">🌿</span>
+          </div>
+          <div className="flex-1 min-w-0">
             <p className="text-sm font-semibold text-[#f4efeb]">Jireh Natural Foods — Back Office</p>
             <p className="text-xs text-[#aba8a4]">POS · Admin · Inventory · Payroll · Reports</p>
-            <p className="text-xs text-[#aba8a4] mt-0.5">Version 1.1.0 · Built {new Date().getFullYear()}</p>
+          </div>
+          <div className="text-right shrink-0">
+            <p className="text-xs font-mono text-[#aba8a4]">v1.1.0</p>
+            <a href="https://aadam.vercel.app" target="_blank" rel="noreferrer"
+              className="text-[10px] text-[#349f2d] hover:text-[#5ecf4f] transition-colors">
+              Built by aadam
+            </a>
           </div>
         </div>
       </Card>

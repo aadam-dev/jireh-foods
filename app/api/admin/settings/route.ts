@@ -7,10 +7,13 @@ import { z } from 'zod';
 // All settings keys the UI is allowed to read/write
 const PUBLIC_KEYS = [
   'business_name',
+  'business_phone',
+  'business_address',
   'currency_symbol',
   'gra_tin',
   'tax_rate',
   'low_stock_alert_threshold', // GH₵ amount below which alerts fire
+  'receipt_header',   // tagline printed under business name on receipt
   'receipt_footer',
 ] as const;
 

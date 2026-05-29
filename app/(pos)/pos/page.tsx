@@ -63,19 +63,23 @@ function Receipt80mm({
   order,
   session: posSession,
   businessName = 'JIREH NATURAL FOODS',
+  businessPhone = '055 113 3481',
+  receiptHeader = 'Fresh & Healthy — Always',
   receiptFooter = 'Thank you for your patronage!',
 }: {
   order: any;
   session: PosSession | null;
   businessName?: string;
+  businessPhone?: string;
+  receiptHeader?: string;
   receiptFooter?: string;
 }) {
   return (
     <div id="receipt-print" className="hidden print:block font-mono text-[11px] w-[72mm] mx-auto">
       <div className="text-center mb-2">
         <div className="font-bold text-[14px]">{businessName.toUpperCase()}</div>
-        <div>Fresh &amp; Healthy — Always</div>
-        <div>Tel: 055 113 3481</div>
+        {receiptHeader && <div>{receiptHeader}</div>}
+        <div>Tel: {businessPhone}</div>
         <div className="border-t border-dashed border-black mt-1 pt-1">
           {new Date(order.createdAt).toLocaleString('en-GH')}
         </div>
@@ -142,7 +146,12 @@ export default function POSPage() {
   const [activeCat, setActiveCat] = useState('');
   const [search, setSearch] = useState('');
   const [cart, setCart] = useState<CartItem[]>([]);
-  const [receiptSettings, setReceiptSettings] = useState({ businessName: 'Jireh Natural Foods', receiptFooter: 'Thank you for your patronage!' });
+  const [receiptSettings, setReceiptSettings] = useState({
+    businessName: 'Jireh Natural Foods',
+    businessPhone: '055 113 3481',
+    receiptHeader: 'Fresh & Healthy — Always',
+    receiptFooter: 'Thank you for your patronage!',
+  });
   const [paymentMethod, setPaymentMethod] = useState('CASH');
   const [deliveryType, setDeliveryType] = useState('TAKEAWAY');
   const [customerName, setCustomerName] = useState('');
@@ -292,6 +301,8 @@ export default function POSPage() {
         if (!data) return;
         setReceiptSettings({
           businessName: data.business_name ?? 'Jireh Natural Foods',
+          businessPhone: data.business_phone ?? '055 113 3481',
+          receiptHeader: data.receipt_header ?? 'Fresh & Healthy — Always',
           receiptFooter: data.receipt_footer ?? 'Thank you for your patronage!',
         });
       })
@@ -310,7 +321,9 @@ export default function POSPage() {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authStatus, isItAdmin]);
-  useEffect(() => { if (authSession?.user) fetchOrders(); }, [authSession, posSession]);
+  // Fetch orders only after session check is done (so we have the correct sessionId).
+  // Intentionally NOT in the same effect as fetchSession to avoid a double-fetch.
+  useEffect(() => { if (sessionChecked && authSession?.user) fetchOrders(); }, [sessionChecked]);
 
   // Cart helpers
   const addToCart = useCallback((item: MenuCategory['items'][0]) => {
@@ -558,6 +571,8 @@ export default function POSPage() {
             order={lastOrder}
             session={posSession}
             businessName={receiptSettings.businessName}
+            businessPhone={receiptSettings.businessPhone}
+            receiptHeader={receiptSettings.receiptHeader}
             receiptFooter={receiptSettings.receiptFooter}
           />
         )}
@@ -631,11 +646,12 @@ export default function POSPage() {
     );
   }
 
-  /* ─── Mandatory session gate ─────────────────────────────────────── */
-  // Wait until NextAuth is fully settled (authenticated) AND POS session fetch is done.
-  // Checking !== 'authenticated' (not just === 'loading') prevents the race where
-  // sessionChecked fires before the JWT resolves, leaving user null and canManageShift false.
-  if (authStatus !== 'authenticated' || !sessionChecked) {
+  /* ─── Auth gate only — show UI as soon as we know who the user is ── */
+  // We no longer block on sessionChecked here. Once auth is resolved, we render
+  // the shift-gate or register immediately; the session fetch updates the view
+  // in the background (< 400 ms). This eliminates the double-waterfall delay
+  // when navigating from Admin → POS.
+  if (authStatus !== 'authenticated') {
     return (
       <div className="h-screen bg-[#111311] flex items-center justify-center">
         <div className="text-center">
@@ -688,9 +704,9 @@ export default function POSPage() {
               <p className="text-2xl font-bold text-[#5ecf4f] font-mono text-center mb-3">{formatCurrency(parseFloat(openingFloatStr) || 0)}</p>
               <Numpad value={openingFloatStr} onChange={setOpeningFloatStr}/>
             </div>
-            <button onClick={openSession} disabled={sessionLoading}
+            <button onClick={openSession} disabled={sessionLoading || !sessionChecked}
               className="w-full bg-[#349f2d] hover:bg-[#287e22] disabled:opacity-40 text-white rounded-2xl py-3.5 font-bold text-sm transition-all active:scale-[0.98] shadow-[0_0_20px_rgba(52,159,45,0.3)]">
-              {sessionLoading ? 'Opening…' : 'Open Shift & Start Selling'}
+              {!sessionChecked ? 'Checking shift…' : sessionLoading ? 'Opening…' : 'Open Shift & Start Selling'}
             </button>
           </div>
         </div>
