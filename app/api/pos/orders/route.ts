@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/src/lib/auth';
 import { prisma } from '@/src/lib/prisma';
-import { z } from 'zod';
+import { z, ZodError } from 'zod';
 import { generateOrderNumber } from '@/src/lib/utils';
 import { getTaxRate } from '@/src/lib/settings';
 import { logAudit } from '@/src/lib/audit';
@@ -9,9 +9,12 @@ import { logAudit } from '@/src/lib/audit';
 const orderItemSchema = z.object({
   menuItemId: z.string(),
   name: z.string(),
-  price: z.number(),
-  quantity: z.number().int().positive(),
+  // coerce: Prisma Decimal serialises to string in JSON; the POS re-sends it as-is
+  price: z.coerce.number(),
+  quantity: z.coerce.number().int().positive(),
   notes: z.string().optional(),
+  // allow subtotal passthrough (cart persisted items may include it)
+  subtotal: z.coerce.number().optional(),
 });
 
 const createOrderSchema = z.object({
@@ -32,7 +35,12 @@ export async function POST(req: NextRequest) {
   if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const body = await req.json();
-  const data = createOrderSchema.parse(body);
+  const parsed = createOrderSchema.safeParse(body);
+  if (!parsed.success) {
+    const msg = parsed.error.errors[0]?.message ?? 'Invalid request body';
+    return NextResponse.json({ error: msg }, { status: 400 });
+  }
+  const data = parsed.data;
 
   // IT admin demo account — orders are isolated from real sales data
   const userEmail = ((session.user as any).email ?? '').toLowerCase();
@@ -180,9 +188,8 @@ export async function GET(req: NextRequest) {
   const session = await auth();
   if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const { searchParams } = new URL(req.url);
-  const staffId = searchParams.get('staffId');
-  const sessionId = searchParams.get('sessionId');
+  const staffId = req.nextUrl.searchParams.get('staffId');
+  const sessionId = req.nextUrl.searchParams.get('sessionId');
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 

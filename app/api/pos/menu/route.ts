@@ -16,5 +16,17 @@ export async function GET() {
       },
     },
   });
-  return NextResponse.json(categories);
+
+  // Prisma Decimal fields serialize to strings in JSON — coerce to number so
+  // the POS can pass them back in order payloads without Zod rejecting them.
+  const serialized = categories.map(cat => ({
+    ...cat,
+    items: cat.items.map(item => ({
+      ...item,
+      price: Number(item.price),
+      costPrice: item.costPrice != null ? Number(item.costPrice) : null,
+    })),
+  }));
+
+  return NextResponse.json(serialized);
 }

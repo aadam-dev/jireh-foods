@@ -19,18 +19,20 @@ export async function GET() {
   // Compute session revenue
   let revenue = 0;
   let cashRevenue = 0;
+  let momoRevenue = 0;
+  let boltRevenue = 0;
   if (open) {
     const orders = await prisma.order.findMany({
       where: { sessionId: open.id, status: 'COMPLETED', isDemo: false },
       select: { total: true, paymentMethod: true },
     });
     revenue = orders.reduce((s, o) => s + Number(o.total), 0);
-    cashRevenue = orders
-      .filter(o => o.paymentMethod === 'CASH')
-      .reduce((s, o) => s + Number(o.total), 0);
+    cashRevenue = orders.filter(o => o.paymentMethod === 'CASH').reduce((s, o) => s + Number(o.total), 0);
+    momoRevenue = orders.filter(o => o.paymentMethod === 'MOMO').reduce((s, o) => s + Number(o.total), 0);
+    boltRevenue = orders.filter(o => o.paymentMethod === 'BOLT_FOOD').reduce((s, o) => s + Number(o.total), 0);
   }
 
-  return NextResponse.json({ session: open, revenue, cashRevenue });
+  return NextResponse.json({ session: open, revenue, cashRevenue, momoRevenue, boltRevenue });
 }
 
 // POST /api/pos/sessions — open a new session
@@ -66,25 +68,35 @@ export async function PATCH(req: NextRequest) {
   if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const body = await req.json();
-  const { sessionId, closingCash, notes } = body;
+  const {
+    sessionId,
+    closingCash,
+    closingMomo,   // actual MoMo received (entered by staff at close)
+    closingBolt,   // actual Bolt Food received (entered by staff at close)
+    notes,
+  } = body;
 
   const pos = await prisma.posSession.findUnique({ where: { id: sessionId } });
   if (!pos || pos.status !== 'OPEN') {
     return NextResponse.json({ error: 'Session not found or already closed' }, { status: 404 });
   }
 
-  // Compute expected cash before closing
+  // Compute expected amounts per payment method before closing
   const orders = await prisma.order.findMany({
     where: { sessionId, status: 'COMPLETED', isDemo: false },
-    select: { total: true, paymentMethod: true, paymentRef: true, tenderedAmount: true, changeAmount: true },
+    select: { total: true, paymentMethod: true },
   });
 
-  const totalRevenue = orders.reduce((s, o) => s + Number(o.total), 0);
-  const cashRevenue = orders
-    .filter(o => o.paymentMethod === 'CASH')
-    .reduce((s, o) => s + Number(o.total), 0);
+  const totalRevenue   = orders.reduce((s, o) => s + Number(o.total), 0);
+  const cashRevenue    = orders.filter(o => o.paymentMethod === 'CASH').reduce((s, o) => s + Number(o.total), 0);
+  const momoRevenue    = orders.filter(o => o.paymentMethod === 'MOMO').reduce((s, o) => s + Number(o.total), 0);
+  const boltRevenue    = orders.filter(o => o.paymentMethod === 'BOLT_FOOD').reduce((s, o) => s + Number(o.total), 0);
+
   const expectedCash = Number(pos.openingFloat) + cashRevenue;
-  const discrepancy = parseFloat(closingCash) - expectedCash;
+
+  const actualCash = parseFloat(closingCash ?? '0');
+  const actualMomo = closingMomo != null ? parseFloat(closingMomo) : momoRevenue;
+  const actualBolt = closingBolt != null ? parseFloat(closingBolt) : boltRevenue;
 
   const revenueByMethod: Record<string, number> = {};
   for (const o of orders) {
@@ -96,7 +108,7 @@ export async function PATCH(req: NextRequest) {
     data: {
       closedAt: new Date(),
       closedBy: session.user.id!,
-      closingCash: parseFloat(closingCash),
+      closingCash: actualCash,
       status: 'CLOSED',
       notes: notes ?? null,
     },
@@ -112,9 +124,14 @@ export async function PATCH(req: NextRequest) {
       orderCount: orders.length,
       totalRevenue,
       revenueByMethod,
+      // Per-method expected vs actual (for reconciliation display)
+      cash:  { expected: expectedCash,  actual: actualCash, discrepancy: actualCash - expectedCash },
+      momo:  { expected: momoRevenue,   actual: actualMomo, discrepancy: actualMomo - momoRevenue },
+      bolt:  { expected: boltRevenue,   actual: actualBolt, discrepancy: actualBolt - boltRevenue },
+      // Legacy fields kept so the existing closing-summary screen still works
       expectedCash,
-      closingCash: parseFloat(closingCash),
-      discrepancy,
+      closingCash: actualCash,
+      discrepancy: actualCash - expectedCash,
     },
   });
 }

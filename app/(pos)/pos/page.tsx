@@ -17,7 +17,7 @@ import { enqueueOrder, getPendingOrders, syncPendingOrders } from '@/src/lib/off
 interface CartItem { menuItemId: string; name: string; price: number; quantity: number; notes?: string }
 interface MenuCategory { id: string; name: string; items: { id: string; name: string; price: number; description?: string; isPopular: boolean; image?: string | null }[] }
 interface PosSession { id: string; openedByUser: { name: string }; openedAt: string; openingFloat: number; status: string }
-interface SessionStats { revenue: number; cashRevenue: number }
+interface SessionStats { revenue: number; cashRevenue: number; momoRevenue: number; boltRevenue: number }
 
 const PAYMENT_METHODS = [
   { id: 'CASH', label: 'Cash', icon: Banknote },
@@ -133,7 +133,7 @@ export default function POSPage() {
   const [cart, setCart] = useState<CartItem[]>([]);
   const [receiptSettings, setReceiptSettings] = useState({ businessName: 'Jireh Natural Foods', receiptFooter: 'Thank you for your patronage!' });
   const [paymentMethod, setPaymentMethod] = useState('CASH');
-  const [deliveryType, setDeliveryType] = useState('DINE_IN');
+  const [deliveryType, setDeliveryType] = useState('TAKEAWAY');
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
   const [orderNotes, setOrderNotes] = useState('');
@@ -143,6 +143,7 @@ export default function POSPage() {
   // Payment flow
   const [view, setView] = useState<'register'|'payment'|'orders'|'session'>('register');
   const [tenderedStr, setTenderedStr] = useState('0');
+  const [momoAmountStr, setMomoAmountStr] = useState('0');  // amount customer paid via MoMo
   const [paymentRef, setPaymentRef] = useState('');
 
   // Mobile tab: 'menu' | 'cart' (only used on small screens)
@@ -151,9 +152,11 @@ export default function POSPage() {
   // Session
   const [posSession, setPosSession] = useState<PosSession | null>(null);
   const [sessionChecked, setSessionChecked] = useState(false);
-  const [sessionStats, setSessionStats] = useState<SessionStats>({ revenue: 0, cashRevenue: 0 });
+  const [sessionStats, setSessionStats] = useState<SessionStats>({ revenue: 0, cashRevenue: 0, momoRevenue: 0, boltRevenue: 0 });
   const [openingFloatStr, setOpeningFloatStr] = useState('0');
   const [closingCashStr, setClosingCashStr] = useState('0');
+  const [closingMomoStr, setClosingMomoStr] = useState('0');
+  const [closingBoltStr, setClosingBoltStr] = useState('0');
   const [sessionLoading, setSessionLoading] = useState(false);
   const [closingSummary, setClosingSummary] = useState<any>(null);
 
@@ -243,7 +246,12 @@ export default function POSPage() {
     if (res.ok) {
       const data = await res.json();
       setPosSession(data.session);
-      setSessionStats({ revenue: data.revenue, cashRevenue: data.cashRevenue });
+      setSessionStats({
+        revenue: data.revenue,
+        cashRevenue: data.cashRevenue,
+        momoRevenue: data.momoRevenue ?? 0,
+        boltRevenue: data.boltRevenue ?? 0,
+      });
     }
     setSessionChecked(true);
   };
@@ -296,15 +304,18 @@ export default function POSPage() {
   const setItemNote = (id: string, note: string) => setCart(prev => prev.map(c => c.menuItemId === id ? { ...c, notes: note } : c));
   const clearCart = () => {
     setCart([]); setCustomerName(''); setCustomerPhone(''); setOrderNotes('');
-    setDiscountAmount(0); setTenderedStr('0'); setPaymentRef('');
+    setDiscountAmount(0); setTenderedStr('0'); setMomoAmountStr('0'); setPaymentRef('');
     try { localStorage.removeItem(CART_KEY); } catch {}
   };
 
   const subtotal = cart.reduce((s, c) => s + c.price * c.quantity, 0);
   const total = Math.max(0, subtotal - discountAmount);
   const tendered = parseFloat(tenderedStr) || 0;
+  const momoAmount = parseFloat(momoAmountStr) || 0;
   const change = paymentMethod === 'CASH' ? Math.max(0, tendered - total) : 0;
-  const canCharge = cart.length > 0 && (paymentMethod !== 'CASH' || tendered >= total);
+  const canCharge = cart.length > 0
+    && (paymentMethod !== 'CASH' || tendered >= total)
+    && (paymentMethod !== 'MOMO' || momoAmount > 0);
 
   const placeOrder = async () => {
     if (cart.length === 0) return;
@@ -315,7 +326,9 @@ export default function POSPage() {
       paymentMethod,
       deliveryType,
       paymentRef: paymentRef || undefined,
-      tenderedAmount: paymentMethod === 'CASH' ? tendered : undefined,
+      tenderedAmount: paymentMethod === 'CASH' ? tendered
+                    : paymentMethod === 'MOMO'  ? momoAmount
+                    : undefined,
       discountAmount,
       sessionId: posSession?.id,
       customerName: customerName || undefined,
@@ -384,20 +397,45 @@ export default function POSPage() {
     } finally { setSessionLoading(false); }
   };
 
-  const closeSession = async () => {
+  const closeSession = async (skipConfirm = false) => {
     if (!posSession) return;
+
+    // Check for discrepancies before closing (unless already confirmed)
+    if (!skipConfirm) {
+      const expectedCash = Number(posSession.openingFloat) + sessionStats.cashRevenue;
+      const cashDisc  = (parseFloat(closingCashStr) || 0) - expectedCash;
+      const momoDisc  = (parseFloat(closingMomoStr) || 0) - sessionStats.momoRevenue;
+      const boltDisc  = (parseFloat(closingBoltStr) || 0) - sessionStats.boltRevenue;
+      const hasDisc   = Math.abs(cashDisc) > 0.01 || Math.abs(momoDisc) > 0.01 || Math.abs(boltDisc) > 0.01;
+      if (hasDisc) {
+        const lines = [];
+        if (Math.abs(cashDisc) > 0.01)  lines.push(`Cash: ${cashDisc > 0 ? '+' : ''}GH₵${cashDisc.toFixed(2)}`);
+        if (Math.abs(momoDisc) > 0.01)  lines.push(`MoMo: ${momoDisc > 0 ? '+' : ''}GH₵${momoDisc.toFixed(2)}`);
+        if (Math.abs(boltDisc) > 0.01)  lines.push(`Bolt: ${boltDisc > 0 ? '+' : ''}GH₵${boltDisc.toFixed(2)}`);
+        const confirmed = window.confirm(
+          `⚠ Discrepancy detected:\n${lines.join('\n')}\n\nDouble-check your counts, or tap OK to close anyway.`
+        );
+        if (!confirmed) return;
+      }
+    }
+
     setSessionLoading(true);
     try {
       const res = await fetch('/api/pos/sessions', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sessionId: posSession.id, closingCash: parseFloat(closingCashStr) }),
+        body: JSON.stringify({
+          sessionId: posSession.id,
+          closingCash: parseFloat(closingCashStr) || 0,
+          closingMomo: parseFloat(closingMomoStr) || 0,
+          closingBolt: parseFloat(closingBoltStr) || 0,
+        }),
       });
       if (res.ok) {
         const data = await res.json();
         setClosingSummary(data.summary);
         setPosSession(null);
-        setSessionStats({ revenue: 0, cashRevenue: 0 });
+        setSessionStats({ revenue: 0, cashRevenue: 0, momoRevenue: 0, boltRevenue: 0 });
       }
     } finally { setSessionLoading(false); }
   };
@@ -488,32 +526,56 @@ export default function POSPage() {
 
   /* ─── Session closing summary ────────────────────────────────────── */
   if (closingSummary) {
-    const disc = closingSummary.discrepancy;
+    const { cash, momo, bolt } = closingSummary;
+    const discColor = (d: number) => Math.abs(d) < 0.01 ? 'text-[#5ecf4f]' : d > 0 ? 'text-blue-400' : 'text-red-400';
+    const discLabel = (d: number) => Math.abs(d) < 0.01 ? '✓ Exact' : `${d > 0 ? '+' : ''}GH₵${Math.abs(d).toFixed(2)} ${d > 0 ? 'over' : 'short'}`;
     return (
-      <div className="h-screen bg-[#111311] flex items-center justify-center p-4">
-        <div className="max-w-sm w-full bg-[#191c19] border border-[#2b2f2b] rounded-3xl p-6">
-          <h2 className="text-xl font-bold text-[#f4efeb] font-serif mb-4 text-center">Session Closed</h2>
-          <div className="space-y-3 text-sm">
-            <div className="flex justify-between"><span className="text-[#aba8a4]">Orders</span><span className="text-[#f4efeb] font-semibold">{closingSummary.orderCount}</span></div>
-            <div className="flex justify-between"><span className="text-[#aba8a4]">Total Revenue</span><span className="text-[#5ecf4f] font-bold">{formatCurrency(closingSummary.totalRevenue)}</span></div>
-            <div className="border-t border-[#2b2f2b] pt-3">
-              {Object.entries(closingSummary.revenueByMethod ?? {}).map(([method, amt]) => (
-                <div key={method} className="flex justify-between mb-1">
-                  <span className="text-[#aba8a4] capitalize">{method}</span>
-                  <span className="text-[#f4efeb]">{formatCurrency(amt as number)}</span>
+      <div className="h-screen bg-[#111311] flex items-center justify-center p-4 overflow-y-auto">
+        <div className="max-w-sm w-full bg-[#191c19] border border-[#2b2f2b] rounded-3xl p-6 my-4">
+          <h2 className="text-xl font-bold text-[#f4efeb] mb-1 text-center">Shift Closed</h2>
+          <p className="text-center text-sm text-[#aba8a4] mb-4">{closingSummary.orderCount} orders · {formatCurrency(closingSummary.totalRevenue)} total</p>
+
+          {/* Per-method reconciliation */}
+          <div className="space-y-2 mb-4">
+            {/* Cash */}
+            {cash && (
+              <div className="bg-[#111311] rounded-2xl p-3">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm font-semibold text-[#f4efeb]">💵 Cash</span>
+                  <span className={`text-xs font-bold ${discColor(cash.discrepancy)}`}>{discLabel(cash.discrepancy)}</span>
                 </div>
-              ))}
-            </div>
-            <div className="border-t border-[#2b2f2b] pt-3 space-y-2">
-              <div className="flex justify-between"><span className="text-[#aba8a4]">Expected Cash</span><span className="text-[#f4efeb]">{formatCurrency(closingSummary.expectedCash)}</span></div>
-              <div className="flex justify-between"><span className="text-[#aba8a4]">Counted Cash</span><span className="text-[#f4efeb]">{formatCurrency(closingSummary.closingCash)}</span></div>
-              <div className="flex justify-between font-bold">
-                <span className="text-[#aba8a4]">Discrepancy</span>
-                <span className={disc === 0 ? 'text-[#5ecf4f]' : disc > 0 ? 'text-blue-400' : 'text-red-400'}>
-                  {disc >= 0 ? '+' : ''}{formatCurrency(disc)}
-                </span>
+                <div className="grid grid-cols-2 gap-1 text-xs text-[#aba8a4]">
+                  <span>Expected</span><span className="text-right text-[#f4efeb]">{formatCurrency(cash.expected)}</span>
+                  <span>Counted</span><span className="text-right text-[#f4efeb]">{formatCurrency(cash.actual)}</span>
+                </div>
               </div>
-            </div>
+            )}
+            {/* MoMo */}
+            {momo && momo.expected > 0 && (
+              <div className="bg-[#111311] rounded-2xl p-3">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm font-semibold text-[#f4efeb]">📱 MoMo</span>
+                  <span className={`text-xs font-bold ${discColor(momo.discrepancy)}`}>{discLabel(momo.discrepancy)}</span>
+                </div>
+                <div className="grid grid-cols-2 gap-1 text-xs text-[#aba8a4]">
+                  <span>Expected</span><span className="text-right text-[#f4efeb]">{formatCurrency(momo.expected)}</span>
+                  <span>Received</span><span className="text-right text-[#f4efeb]">{formatCurrency(momo.actual)}</span>
+                </div>
+              </div>
+            )}
+            {/* Bolt */}
+            {bolt && bolt.expected > 0 && (
+              <div className="bg-[#111311] rounded-2xl p-3">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm font-semibold text-[#f4efeb]">⚡ Bolt Food</span>
+                  <span className={`text-xs font-bold ${discColor(bolt.discrepancy)}`}>{discLabel(bolt.discrepancy)}</span>
+                </div>
+                <div className="grid grid-cols-2 gap-1 text-xs text-[#aba8a4]">
+                  <span>Expected</span><span className="text-right text-[#f4efeb]">{formatCurrency(bolt.expected)}</span>
+                  <span>Received</span><span className="text-right text-[#f4efeb]">{formatCurrency(bolt.actual)}</span>
+                </div>
+              </div>
+            )}
           </div>
           <div className="flex gap-2 mt-6">
             <button onClick={() => window.print()} className="flex-1 flex items-center justify-center gap-1 bg-[#191c19] border border-[#2b2f2b] text-[#f4efeb] rounded-xl py-2.5 text-sm hover:bg-[#232623] transition-colors">
@@ -621,8 +683,9 @@ export default function POSPage() {
                 <span className="text-green-400">-{formatCurrency(discountAmount)}</span>
               </div>
             )}
-            <div className="flex justify-between font-bold text-[#f4efeb] border-t border-[#2b2f2b] pt-2 mt-1">
-              <span>Total</span><span className="text-[#5ecf4f] text-xl">{formatCurrency(total)}</span>
+            <div className="flex justify-between items-center border-t border-[#2b2f2b] pt-2 mt-1">
+              <span className="font-bold text-[#f4efeb]">Total</span>
+              <span className="text-2xl font-black text-[#5ecf4f] tabular-nums">{formatCurrency(total)}</span>
             </div>
           </div>
 
@@ -668,14 +731,26 @@ export default function POSPage() {
             </div>
           )}
 
-          {/* MoMo reference */}
+          {/* MoMo amount + reference */}
           {paymentMethod === 'MOMO' && (
-            <div className="bg-[#191c19] border border-[#2b2f2b] rounded-2xl p-4 space-y-3">
-              <p className="text-sm font-medium text-[#f4efeb]">MoMo Transaction Reference</p>
+            <div className="space-y-3">
+              <div className="bg-[#191c19] border border-[#2b2f2b] rounded-2xl p-4">
+                <p className="text-xs text-[#aba8a4] mb-1">Amount Sent via MoMo</p>
+                <p className="text-3xl font-black text-[#f4efeb] tabular-nums">{formatCurrency(momoAmount)}</p>
+                <p className="text-xs text-[#aba8a4] mt-1">Order total: <strong className="text-[#5ecf4f]">{formatCurrency(total)}</strong></p>
+              </div>
+              <Numpad value={momoAmountStr} onChange={setMomoAmountStr}/>
+              <div className="grid grid-cols-2 gap-1.5">
+                {[total, Math.ceil(total / 5) * 5].map(amt => (
+                  <button key={amt} onClick={() => setMomoAmountStr(amt.toFixed(2))}
+                    className="py-2 rounded-xl bg-[#349f2d]/10 border border-[#349f2d]/30 text-[#5ecf4f] text-xs font-medium hover:bg-[#349f2d]/20 transition-colors">
+                    Exact {formatCurrency(amt)}
+                  </button>
+                ))}
+              </div>
               <input value={paymentRef} onChange={e => setPaymentRef(e.target.value)}
-                placeholder="Enter MoMo reference number"
-                className="w-full bg-[#111311] border border-[#2b2f2b] rounded-xl px-3 py-2.5 text-sm text-[#f4efeb] placeholder:text-[#aba8a4]/50 focus:outline-none focus:border-[#349f2d] transition-colors"/>
-              <p className="text-xs text-[#aba8a4]">Total due: <strong className="text-[#5ecf4f]">{formatCurrency(total)}</strong></p>
+                placeholder="MoMo reference (optional)"
+                className="w-full bg-[#191c19] border border-[#2b2f2b] rounded-xl px-3 py-2.5 text-sm text-[#f4efeb] placeholder:text-[#aba8a4]/50 focus:outline-none focus:border-[#349f2d] transition-colors"/>
             </div>
           )}
 
@@ -743,25 +818,67 @@ export default function POSPage() {
                   </div>
                 </div>
               </div>
-              {/* All authenticated users can close a shift */}
-              {true && (
-                <div className="bg-[#191c19] border border-[#2b2f2b] rounded-2xl p-4 space-y-3">
-                  <p className="text-sm font-semibold text-[#f4efeb]">Close Shift — Enter Physical Cash Count</p>
-                  <div className="bg-[#111311] rounded-xl p-3">
-                    <p className="text-xs text-[#aba8a4] mb-1">Opening Float: {formatCurrency(posSession.openingFloat)}</p>
-                    <p className="text-xs text-[#aba8a4]">Expected Cash: {formatCurrency(Number(posSession.openingFloat) + sessionStats.cashRevenue)}</p>
+              {/* Shift reconciliation — one section per payment method */}
+              {(() => {
+                const expectedCash = Number(posSession.openingFloat) + sessionStats.cashRevenue;
+                const cashDisc = (parseFloat(closingCashStr) || 0) - expectedCash;
+                const momoDisc = (parseFloat(closingMomoStr) || 0) - sessionStats.momoRevenue;
+                const boltDisc = (parseFloat(closingBoltStr) || 0) - sessionStats.boltRevenue;
+                const discColor = (d: number) => Math.abs(d) < 0.01 ? 'text-[#5ecf4f]' : d > 0 ? 'text-blue-400' : 'text-red-400';
+                const discLabel = (d: number) => Math.abs(d) < 0.01 ? 'Exact ✓' : `${d > 0 ? '+' : ''}GH₵${Math.abs(d).toFixed(2)} ${d > 0 ? 'over' : 'short'}`;
+                return (
+                  <div className="space-y-3">
+                    {/* Summary row */}
+                    <div className="bg-[#111311] rounded-xl p-3 grid grid-cols-3 gap-2 text-center">
+                      <div><p className="text-[10px] text-[#aba8a4] uppercase tracking-wide">Cash sales</p><p className="text-sm font-bold text-[#f4efeb]">{formatCurrency(sessionStats.cashRevenue)}</p></div>
+                      <div><p className="text-[10px] text-[#aba8a4] uppercase tracking-wide">MoMo sales</p><p className="text-sm font-bold text-[#f4efeb]">{formatCurrency(sessionStats.momoRevenue)}</p></div>
+                      <div><p className="text-[10px] text-[#aba8a4] uppercase tracking-wide">Bolt sales</p><p className="text-sm font-bold text-[#f4efeb]">{formatCurrency(sessionStats.boltRevenue)}</p></div>
+                    </div>
+
+                    {/* Cash */}
+                    <div className="bg-[#191c19] border border-[#2b2f2b] rounded-2xl p-4 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <p className="text-sm font-semibold text-[#f4efeb]">💵 Cash Count</p>
+                        <span className={`text-xs font-bold ${discColor(cashDisc)}`}>{discLabel(cashDisc)}</span>
+                      </div>
+                      <p className="text-xs text-[#aba8a4]">Expected: {formatCurrency(expectedCash)} (float {formatCurrency(posSession.openingFloat)} + {formatCurrency(sessionStats.cashRevenue)} sales)</p>
+                      <p className="text-2xl font-black text-[#f4efeb] tabular-nums">{formatCurrency(parseFloat(closingCashStr) || 0)}</p>
+                      <Numpad value={closingCashStr} onChange={setClosingCashStr}/>
+                    </div>
+
+                    {/* MoMo */}
+                    {sessionStats.momoRevenue > 0 && (
+                      <div className="bg-[#191c19] border border-[#2b2f2b] rounded-2xl p-4 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <p className="text-sm font-semibold text-[#f4efeb]">📱 MoMo Received</p>
+                          <span className={`text-xs font-bold ${discColor(momoDisc)}`}>{discLabel(momoDisc)}</span>
+                        </div>
+                        <p className="text-xs text-[#aba8a4]">Expected: {formatCurrency(sessionStats.momoRevenue)}</p>
+                        <p className="text-2xl font-black text-[#f4efeb] tabular-nums">{formatCurrency(parseFloat(closingMomoStr) || 0)}</p>
+                        <Numpad value={closingMomoStr} onChange={setClosingMomoStr}/>
+                      </div>
+                    )}
+
+                    {/* Bolt */}
+                    {sessionStats.boltRevenue > 0 && (
+                      <div className="bg-[#191c19] border border-[#2b2f2b] rounded-2xl p-4 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <p className="text-sm font-semibold text-[#f4efeb]">⚡ Bolt Received</p>
+                          <span className={`text-xs font-bold ${discColor(boltDisc)}`}>{discLabel(boltDisc)}</span>
+                        </div>
+                        <p className="text-xs text-[#aba8a4]">Expected: {formatCurrency(sessionStats.boltRevenue)}</p>
+                        <p className="text-2xl font-black text-[#f4efeb] tabular-nums">{formatCurrency(parseFloat(closingBoltStr) || 0)}</p>
+                        <Numpad value={closingBoltStr} onChange={setClosingBoltStr}/>
+                      </div>
+                    )}
+
+                    <button onClick={() => closeSession()} disabled={sessionLoading}
+                      className="w-full bg-red-600 hover:bg-red-700 disabled:opacity-40 text-white rounded-xl py-3 font-semibold text-sm transition-colors">
+                      {sessionLoading ? 'Closing…' : 'Close Shift'}
+                    </button>
                   </div>
-                  <div>
-                    <p className="text-xs text-[#aba8a4] mb-2">Counted Cash</p>
-                    <p className="text-2xl font-bold text-[#f4efeb] font-mono mb-3">{formatCurrency(parseFloat(closingCashStr) || 0)}</p>
-                    <Numpad value={closingCashStr} onChange={setClosingCashStr}/>
-                  </div>
-                  <button onClick={closeSession} disabled={sessionLoading}
-                    className="w-full bg-red-600 hover:bg-red-700 disabled:opacity-40 text-white rounded-xl py-3 font-semibold text-sm transition-colors">
-                    {sessionLoading ? 'Closing…' : 'Close Session'}
-                  </button>
-                </div>
-              )}
+                );
+              })()}
             </div>
           ) : (
             /* No active session — all authenticated users can open a new shift */
@@ -1055,9 +1172,9 @@ export default function POSPage() {
               ))}
             </div>
 
-            <div className="flex justify-between items-center bg-[#191c19] rounded-xl px-4 py-2.5">
-              <span className="text-xs text-[#aba8a4]">Total</span>
-              <span className="text-lg font-bold text-[#5ecf4f] font-serif">{formatCurrency(total)}</span>
+            <div className="flex justify-between items-center bg-[#191c19] rounded-xl px-4 py-3">
+              <span className="text-sm font-semibold text-[#aba8a4] uppercase tracking-wide">Total</span>
+              <span className="text-2xl font-black text-[#5ecf4f] tabular-nums">{formatCurrency(total)}</span>
             </div>
             <button onClick={() => setView('payment')} disabled={cart.length === 0}
               className="w-full bg-[#349f2d] hover:bg-[#287e22] disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-2xl py-5 font-bold text-base transition-all active:scale-[0.98] shadow-[0_0_24px_rgba(52,159,45,0.4)]">
