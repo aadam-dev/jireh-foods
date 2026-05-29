@@ -1,6 +1,6 @@
 # Jireh Natural Foods — Staff POS & Back-Office Training Guide
 
-> Last updated: May 2026 | System by Aadamsays (aadamsays@gmail.com)
+> Last updated: May 2026 (split payments, MoMo amount entry, per-method shift reconciliation) | System by Aadamsays (aadamsays@gmail.com)
 
 ---
 
@@ -44,25 +44,50 @@ A **shift** (also called a session) is the accounting record for a single workin
 ## 4. Taking an Order
 
 1. Select items from the menu grid (tap to add, +/− to adjust quantity)
-2. Choose **Delivery Type**: Dine In / Takeaway / Delivery
+2. Choose **Delivery Type**: the system defaults to **Takeaway** — change to Dine In or Delivery if needed
 3. Optionally add customer name, phone, order notes
 4. Press **Charge →** to go to the payment screen
-5. Select payment method: **Cash**, **MoMo**, or **Bolt Food**
-   - **Cash**: enter tendered amount — change is calculated automatically
-   - **MoMo**: enter the transaction reference number
-   - **Bolt Food**: order reference auto-captured; payment collected by Bolt
+5. Select payment method: **Cash**, **MoMo**, **Bolt Food**, or **Split Payment**
+   - **Cash**: enter the note/coin amount tendered — change is calculated automatically
+   - **MoMo**: use the numpad to enter the amount received via MoMo, then optionally add the transaction reference number
+   - **Bolt Food**: enter the Bolt order reference; payment is collected by Bolt
+   - **Split Payment**: see section below
 6. Press **Confirm & Print** — receipt prints automatically
+
+---
+
+## 4a. Split Payments (Partial Cash + Partial MoMo)
+
+Use this when a customer pays partly in cash and partly via MoMo (or any combination).
+
+1. On the payment screen, tap **"⊕ Split"**
+2. The screen switches to split mode with tabs: **Cash · MoMo · Bolt Food**
+3. Tap **Cash**, enter the cash amount received using the numpad
+4. Tap **MoMo**, enter the MoMo amount (tap "Fill Remaining" to auto-fill the balance)
+5. The progress bar at the bottom shows how much is covered vs the total
+6. The **"Confirm Payment"** button activates only when the full order total is reached
+7. Tap **"Confirm Payment"** — the receipt will show each payment leg separately
+
+> **Example:** Order is GH₵ 100. Customer pays GH₵ 60 cash + GH₵ 40 MoMo. Enter 60 on Cash tab, then tap "Fill Remaining" on MoMo tab → done.
 
 ---
 
 ## 5. Closing Your Shift
 
-1. Tap the **"Shift Open"** pill in the top-right corner of the register
-2. Physically count all cash in the drawer
-3. Enter the **Closing Cash** amount
-4. Press **Close Shift**
-5. The system shows a summary: revenue, cash expected, cash counted, discrepancy
-6. Hand over the cash to the manager
+1. Tap the **"Shift Open"** pill in the top-right corner (or "Shift" tab on mobile)
+2. The session screen shows total revenue broken down by payment method (Cash / MoMo / Bolt Food)
+3. **For each method that has revenue, you enter the actual amount received:**
+   - **Cash** — physically count the drawer and enter the total (including the opening float). The system shows expected vs counted in real time.
+   - **MoMo** _(if any MoMo orders)_ — enter the total MoMo received during the shift
+   - **Bolt Food** _(if any Bolt orders)_ — enter the total Bolt collected
+4. A live discrepancy label under each section shows if the numbers match
+5. Press **Close Session**
+   - If all amounts match: session closes immediately and the summary screen is shown
+   - If there is a discrepancy: an alert appears showing the gap. You can either **go back and recount**, or **confirm and close anyway** (discrepancy will be logged)
+6. The summary screen shows per-method cards: expected, actual entered, and any discrepancy
+7. Hand over the cash to the manager
+
+> **Tip:** A discrepancy of GH₵ 0.00 is the goal. Small rounding differences (GH₵ 0.01) are normal and safe to close without concern.
 
 ---
 
@@ -111,8 +136,11 @@ The IT Admin account (`it@jireh.com`) operates in **demo mode only**:
 - **Never share login credentials.** Each staff member has their own account.
 - **Always open a shift before selling.** Orders without a shift cannot be tracked for accounting.
 - **Count cash carefully** when closing a shift. Discrepancies are logged automatically.
+- **MoMo payments**: always enter the exact amount received via MoMo — this is used for end-of-day reconciliation.
+- **Split payments**: only confirm when the progress bar reaches 100% (full order total covered). The system will not allow confirmation until then.
 - **Void orders** (Owner/Manager only) via Admin → Orders → View → "Void / Refund Order". Always provide a reason — it is audit-logged.
 - **Bolt Food orders**: mark as Bolt Food payment method. Revenue is reconciled separately from Bolt's monthly statement.
+- **Default delivery type is Takeaway** — remember to switch to Dine In if the customer is eating in.
 
 ---
 

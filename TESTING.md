@@ -1,6 +1,6 @@
 # Jireh Natural Foods — System Test Plan
 
-> Last updated: May 2026  
+> Last updated: May 2026 (split payments, MoMo amount entry, per-method reconciliation)  
 > System: [jirehnaturalfoods.vercel.app](https://jirehnaturalfoods.vercel.app)  
 > Run these manually or hand to Claude Code with: _"Run the Jireh test plan at docs/TESTING.md"_
 
@@ -10,9 +10,9 @@
 
 | Email | Password | Role | Access |
 |---|---|---|---|
-| `prince@jireh.com` | _(set in DB)_ | OWNER | POS + Full Back-Office |
-| `it@jireh.com` | _(set in DB)_ | OWNER (demo) | POS demo mode + Full Back-Office |
-| `nii@jireh.com` | _(set in DB)_ | CASHIER | POS only |
+| `prince@jireh.com` | `jireh2024!` | OWNER | POS + Full Back-Office |
+| `it@jireh.com` | _(reset if unknown)_ | OWNER (demo) | POS demo mode + Full Back-Office |
+| `nii@jireh.com` | `cashier123` | CASHIER | POS only |
 | _(create in test)_ | `test1234` | MANAGER | POS + Back-Office |
 
 ---
@@ -61,10 +61,20 @@
 
 ### 2.2 Closing a Shift
 - [ ] With shift open, tap "Shift Open" pill (desktop) or "Shift" tab (mobile)  
-  **Expect:** Session management screen showing session revenue + expected cash
-- [ ] Enter closing cash amount using numpad
-- [ ] Tap "Close Session"  
-  **Expect:** Summary screen showing revenue, expected cash, counted cash, discrepancy
+  **Expect:** Session management screen showing revenue totals per payment method (Cash / MoMo / Bolt Food)
+- [ ] In the **Cash** section, enter the physical cash counted using the numpad  
+  **Expect:** Live discrepancy label updates (green if 0, red if gap)
+- [ ] If MoMo revenue > 0 in session, enter the actual MoMo received amount  
+  **Expect:** MoMo discrepancy shown
+- [ ] If Bolt Food revenue > 0, enter actual Bolt received  
+  **Expect:** Bolt discrepancy shown
+- [ ] Tap "Close Session" when all amounts look correct  
+  **Expect (no discrepancy):** Summary screen immediately, session closed
+- [ ] Re-test with wrong cash amount (e.g., enter GH₵ 80 when expected is GH₵ 155)  
+  **Expect:** Alert dialog: "Cash doesn't match — expected X, you entered Y. Close anyway?" — must confirm
+- [ ] Dismiss the alert, correct the amount, close again  
+  **Expect:** Closes cleanly if amounts now match
+- [ ] Summary screen after close should show per-method cards: Expected / Actual / Discrepancy for Cash, MoMo, Bolt
 - [ ] After closing, navigate to `/pos`  
   **Expect:** "Open Today's Shift" gate appears again
 
@@ -102,8 +112,10 @@
   **Expect:** Returns to active category view
 
 ### 3.4 Delivery Type
-- [ ] With items in cart, select "Takeaway" delivery type  
-  **Expect:** Button highlights green; type saved to order
+- [ ] Open register with items in cart — check the default delivery type  
+  **Expect:** **Takeaway** is selected by default (not Dine In)
+- [ ] Switch to "Dine In" and back to "Takeaway"  
+  **Expect:** Selection highlights green; type saved to order correctly
 
 ### 3.5 Cash Payment
 - [ ] Tap "Charge GH₵ X" button  
@@ -117,9 +129,11 @@
 
 ### 3.6 MoMo Payment
 - [ ] Repeat order, select "MoMo"  
-  **Expect:** Reference number input appears (no numpad)
-- [ ] Enter a transaction reference, confirm  
-  **Expect:** Order placed successfully
+  **Expect:** Numpad appears to enter the MoMo amount received (same as cash flow)
+- [ ] Enter the MoMo amount using numpad (e.g. exact order total)  
+  **Expect:** Amount displayed; optionally enter a transaction reference below
+- [ ] Confirm payment  
+  **Expect:** Order placed successfully; MoMo payment recorded for session reconciliation
 
 ### 3.7 Bolt Food Payment
 - [ ] Repeat order, select "Bolt Food"  
@@ -127,9 +141,29 @@
 - [ ] Enter reference, confirm  
   **Expect:** Order placed; shows Bolt payment in orders list
 
-### 3.8 Cart Persistence
+### 3.8 Split Payment
+- [ ] Add items totalling e.g. GH₵ 100 to cart, tap "Charge →"  
+  **Expect:** Payment screen shows Cash / MoMo / Bolt Food tabs plus a **"⊕ Split"** toggle
+- [ ] Tap "⊕ Split"  
+  **Expect:** Split mode activates; tabs for Cash, MoMo, Bolt Food appear; progress bar at bottom shows GH₵ 0 / GH₵ 100
+- [ ] Tap "Cash" leg, enter GH₵ 60 using numpad  
+  **Expect:** Progress bar advances to GH₵ 60 / GH₵ 100; Cash leg shows GH₵ 60
+- [ ] Tap "MoMo" leg, tap "Fill remaining"  
+  **Expect:** MoMo leg fills to GH₵ 40; progress bar shows GH₵ 100 / GH₵ 100 ✅
+- [ ] Tap "Confirm Payment"  
+  **Expect:** Order placed with payment method "SPLIT"; receipt shows two legs (Cash GH₵60 + MoMo GH₵40)
+- [ ] Try confirming with only GH₵ 60 entered (GH₵ 40 gap)  
+  **Expect:** "Confirm Payment" button disabled — cannot confirm until total is reached
+- [ ] Add a 3-way split: Cash + MoMo + Bolt Food  
+  **Expect:** All three legs accepted; order created correctly
+- [ ] In Admin → Orders, find the SPLIT order  
+  **Expect:** Payment badge shows "Split"; order detail shows individual leg amounts
+- [ ] Close session after a SPLIT order and check reconciliation  
+  **Expect:** Cash and MoMo (and Bolt) sections reflect their respective leg amounts
+
+### 3.9 Cart Persistence
 - [ ] Add items to cart, navigate away (to Admin), return to POS  
-  **Expect:** Cart is still intact (saved in localStorage)
+  **Expect:** Cart is still intact (saved in localStorage); split mode resets to single payment
 
 ---
 
@@ -385,7 +419,7 @@
 
 | Item | Status | Notes |
 |---|---|---|
-| Banku items have no image | ✅ Acceptable | No photo in `/public/jireh/` — shows plate placeholder |
+| Banku items have image | ✅ Fixed | Photo stored at `/public/jireh/banku.jpg` — shows on POS cards |
 | Brukina is not on public website | ✅ Kept intentionally | Real menu item added via admin |
 | Snacks (Buns, Meat Pie) not on website | ✅ Kept | Real items added via admin |
 | IT admin creates DEMO orders | ✅ By design | Not counted in revenue; shift bypass intended |
@@ -403,9 +437,17 @@ Run these after any deployment:
 - [ ] POS shift gate shows for all roles except IT admin
 - [ ] IT admin gets DEMO badge and bypasses shift gate
 - [ ] Order placed → appears in dashboard and orders list
+- [ ] Cash payment: tendered + change calculated correctly
+- [ ] MoMo payment: numpad for amount entry; amount recorded in session stats
+- [ ] Bolt Food payment: reference captured; amount recorded in session stats
+- [ ] Split payment: progress bar tracks total; "Confirm" blocked until full; receipt shows legs
+- [ ] Session close: per-method reconciliation (Cash / MoMo / Bolt) with discrepancy warning
 - [ ] Receipt prints on paper in 80mm thermal format (not full page)
+- [ ] SPLIT receipt shows individual legs, not generic "Payment (SPLIT)"
+- [ ] Admin Orders: Split orders show "Split" badge; customer page shows "Split" label
 - [ ] Offline order saved → syncs automatically when reconnected
 - [ ] Menu matches public website items and prices exactly
+- [ ] Default delivery type is **Takeaway** (not Dine In)
 
 ---
 
