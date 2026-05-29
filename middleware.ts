@@ -52,6 +52,27 @@ export default auth(async (req: NextRequest & { auth?: any }) => {
     safe.headers.get('x-real-ip') ??
     '127.0.0.1';
 
+  // ── Defense-in-depth auth guard ─────────────────────────────────────────────
+  // The NextAuth authorized() callback in auth.config.ts is the primary gate.
+  // This is a redundant hard-check so we never silently serve protected pages
+  // if the callback misbehaves (e.g. NextAuth beta edge cases).
+  const isLoggedIn = !!req.auth?.user;
+  const role = (req.auth?.user as any)?.role as string | undefined;
+  const isAdminRoute = pathname.startsWith('/admin') || pathname.startsWith('/api/admin');
+  const isPosRoute   = pathname === '/pos' || pathname.startsWith('/pos/') || pathname.startsWith('/api/pos');
+  const isPosOnlyRole = role === 'CASHIER' || role === 'STAFF';
+
+  if ((isAdminRoute || isPosRoute) && !isLoggedIn) {
+    const loginUrl = new URL('/login', req.url);
+    loginUrl.searchParams.set('callbackUrl', pathname);
+    return Response.redirect(loginUrl);
+  }
+
+  // CASHIER / STAFF cannot access admin routes
+  if (isAdminRoute && isLoggedIn && isPosOnlyRole) {
+    return Response.redirect(new URL('/pos', req.url));
+  }
+
   // Rate-limit login attempts
   if (loginLimiter && pathname === '/api/auth/callback/credentials' && req.method === 'POST') {
     const { success } = await loginLimiter.limit(`login:${ip}`);
@@ -65,7 +86,7 @@ export default auth(async (req: NextRequest & { auth?: any }) => {
 
   // Rate-limit POS order creation per user
   if (orderLimiter && pathname === '/api/pos/orders' && req.method === 'POST') {
-    const userId = req.auth?.user?.id ?? ip;
+    const userId = (req.auth?.user as any)?.id ?? ip;
     const { success } = await orderLimiter.limit(`order:${userId}`);
     if (!success) {
       return NextResponse.json(
@@ -75,12 +96,15 @@ export default auth(async (req: NextRequest & { auth?: any }) => {
     }
   }
 
-  // Auth routing handled by NextAuth authorized() callback in auth.config.ts
   return NextResponse.next();
 });
 
 export const config = {
   matcher: [
+    // Explicit bare-path entry ensures /pos itself is always matched,
+    // not just /pos/* — avoids edge cases in Next.js middleware path matching.
+    '/pos',
+    '/admin',
     '/admin/:path*',
     '/pos/:path*',
     '/login',

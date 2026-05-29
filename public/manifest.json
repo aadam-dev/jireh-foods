@@ -1,0 +1,43 @@
+{
+  "name": "Jireh Natural Foods POS",
+  "short_name": "Jireh POS",
+  "description": "Point of Sale for Jireh Natural Foods — Adenta, Accra",
+  "start_url": "/pos",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#111311",
+  "theme_color": "#349f2d",
+  "prefer_related_applications": false,
+  "icons": [
+    {
+      "src": "/jireh/logo.jpg",
+      "sizes": "any",
+      "type": "image/jpeg",
+      "purpose": "any"
+    },
+    {
+      "src": "/jireh/logo.jpg",
+      "sizes": "any",
+      "type": "image/jpeg",
+      "purpose": "maskable"
+    }
+  ],
+  "categories": ["food", "business", "productivity"],
+  "shortcuts": [
+    {
+      "name": "Open Register",
+      "short_name": "Register",
+      "description": "Go directly to the POS register",
+      "url": "/pos",
+      "icons": [{ "src": "/jireh/logo.jpg", "sizes": "any" }]
+    },
+    {
+      "name": "Back Office",
+      "short_name": "Admin",
+      "description": "Open the back office dashboard",
+      "url": "/admin",
+      "icons": [{ "src": "/jireh/logo.jpg", "sizes": "any" }]
+    }
+  ]
+}

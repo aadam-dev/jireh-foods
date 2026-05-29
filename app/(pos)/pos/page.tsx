@@ -11,6 +11,7 @@ import {
 import Link from 'next/link';
 import Image from 'next/image';
 import { formatCurrency, formatTime } from '@/src/lib/utils';
+import { enqueueOrder, getPendingOrders, syncPendingOrders } from '@/src/lib/offlineQueue';
 
 /* ─── Types ─────────────────────────────────────────────────────────── */
 interface CartItem { menuItemId: string; name: string; price: number; quantity: number; notes?: string }
@@ -162,7 +163,46 @@ export default function POSPage() {
   const [placing, setPlacing] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
 
+  // Offline / sync state
+  const [isOnline, setIsOnline] = useState(true);
+  const [pendingCount, setPendingCount] = useState(0);
+  const [syncing, setSyncing] = useState(false);
+
   useEffect(() => { const t = setInterval(() => setCurrentTime(new Date()), 1000); return () => clearInterval(t); }, []);
+
+  // ── Online / offline detection ────────────────────────────────────────────
+  useEffect(() => {
+    const update = () => setIsOnline(navigator.onLine);
+    update(); // set initial state
+    window.addEventListener('online', update);
+    window.addEventListener('offline', update);
+    return () => { window.removeEventListener('online', update); window.removeEventListener('offline', update); };
+  }, []);
+
+  // ── Offline queue: check pending count on mount ────────────────────────────
+  useEffect(() => {
+    getPendingOrders().then(q => setPendingCount(q.length)).catch(() => {});
+  }, []);
+
+  // ── Auto-sync when connection is restored ─────────────────────────────────
+  useEffect(() => {
+    if (!isOnline) return;
+    let alive = true;
+    (async () => {
+      const pending = await getPendingOrders().catch(() => []);
+      if (!alive || pending.length === 0) return;
+      setSyncing(true);
+      try {
+        const { synced } = await syncPendingOrders();
+        if (!alive) return;
+        const remaining = await getPendingOrders().catch(() => []);
+        setPendingCount(remaining.length);
+        if (synced > 0) { fetchOrders(); fetchSession(); }
+      } finally { if (alive) setSyncing(false); }
+    })();
+    return () => { alive = false; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOnline]);
 
   // Hydrate cart from localStorage on first render (client-only)
   useEffect(() => {
@@ -269,22 +309,25 @@ export default function POSPage() {
   const placeOrder = async () => {
     if (cart.length === 0) return;
     setPlacing(true);
+
+    const orderPayload = {
+      items: cart,
+      paymentMethod,
+      deliveryType,
+      paymentRef: paymentRef || undefined,
+      tenderedAmount: paymentMethod === 'CASH' ? tendered : undefined,
+      discountAmount,
+      sessionId: posSession?.id,
+      customerName: customerName || undefined,
+      customerPhone: customerPhone || undefined,
+      notes: orderNotes || undefined,
+    };
+
     try {
       const res = await fetch('/api/pos/orders', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          items: cart,
-          paymentMethod,
-          deliveryType,
-          paymentRef: paymentRef || undefined,
-          tenderedAmount: paymentMethod === 'CASH' ? tendered : undefined,
-          discountAmount,
-          sessionId: posSession?.id,
-          customerName: customerName || undefined,
-          customerPhone: customerPhone || undefined,
-          notes: orderNotes || undefined,
-        }),
+        body: JSON.stringify(orderPayload),
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
@@ -292,20 +335,39 @@ export default function POSPage() {
         return;
       }
       const order = await res.json();
-      if (!order?.orderNumber) {
-        alert('Order failed: invalid response from server');
-        return;
-      }
+      if (!order?.orderNumber) { alert('Order failed: invalid response from server'); return; }
       setLastOrder({ ...order, createdAt: new Date().toISOString() });
       clearCart();
       setView('register');
       fetchOrders();
       fetchSession();
-      // Auto-trigger print dialog after a short delay (lets the success screen render first)
+      // Auto-trigger print dialog after a short delay
       setTimeout(() => { try { window.print(); } catch {} }, 600);
-    } catch (e: any) {
-      alert(`Order failed: ${e?.message || 'Network error'}`);
-    } finally { setPlacing(false); }
+    } catch {
+      // ── Offline fallback — save to IndexedDB queue, never lose the order ───
+      try {
+        await enqueueOrder(orderPayload);
+        const remaining = await getPendingOrders();
+        setPendingCount(remaining.length);
+        // Show a receipt-like confirmation screen with offline flag
+        setLastOrder({
+          orderNumber: `OFF-${Date.now()}`,
+          items: cart,
+          total,
+          paymentMethod,
+          deliveryType,
+          changeAmount: change,
+          createdAt: new Date().toISOString(),
+          _offline: true,           // UI flag: suppress print, show sync warning
+        });
+        clearCart();
+        setView('register');
+      } catch {
+        alert('Order could not be saved. Please check your device storage and try again.');
+      }
+    } finally {
+      setPlacing(false);
+    }
   };
 
   // Session actions
@@ -346,19 +408,42 @@ export default function POSPage() {
 
   /* ─── Post-order success / print screen ─────────────────────────── */
   if (lastOrder) {
+    const isOfflineOrder = !!lastOrder._offline;
     return (
       <div className="h-screen bg-[#111311] flex items-center justify-center p-4">
         {/* screen-only success UI — hidden when printing so only the receipt shows */}
         <div className="text-center max-w-sm w-full print:hidden">
-          <div className="w-16 h-16 rounded-full bg-[#349f2d]/20 border border-[#349f2d]/40 flex items-center justify-center mx-auto mb-4">
-            <CheckCircle2 size={28} className="text-[#5ecf4f]" />
+          <div className={`w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 ${
+            isOfflineOrder
+              ? 'bg-yellow-400/20 border border-yellow-400/40'
+              : 'bg-[#349f2d]/20 border border-[#349f2d]/40'
+          }`}>
+            {isOfflineOrder
+              ? <AlertCircle size={28} className="text-yellow-400" />
+              : <CheckCircle2 size={28} className="text-[#5ecf4f]" />}
           </div>
-          <h2 className="text-xl font-bold text-[#f4efeb] font-serif mb-1">Order Complete!</h2>
-          {isItAdmin && (
-            <span className="inline-block mb-2 px-2.5 py-0.5 rounded-full bg-amber-400/15 border border-amber-400/40 text-amber-400 text-[10px] font-bold tracking-wide">
-              DEMO — not counted in sales
-            </span>
+
+          {isOfflineOrder ? (
+            <>
+              <h2 className="text-xl font-bold text-[#f4efeb] font-serif mb-1">Saved Offline</h2>
+              <p className="text-sm text-yellow-400 mb-2">No internet — order queued locally</p>
+              <div className="bg-yellow-400/10 border border-yellow-400/30 rounded-2xl px-4 py-3 mb-4 text-xs text-yellow-300 text-left space-y-1">
+                <p>✓ Order is saved on this device</p>
+                <p>✓ Will sync automatically when connected</p>
+                <p>✓ No order will be lost</p>
+              </div>
+            </>
+          ) : (
+            <>
+              <h2 className="text-xl font-bold text-[#f4efeb] font-serif mb-1">Order Complete!</h2>
+              {isItAdmin && (
+                <span className="inline-block mb-2 px-2.5 py-0.5 rounded-full bg-amber-400/15 border border-amber-400/40 text-amber-400 text-[10px] font-bold tracking-wide">
+                  DEMO — not counted in sales
+                </span>
+              )}
+            </>
           )}
+
           <p className="text-sm text-[#aba8a4] mb-2">{lastOrder.orderNumber}</p>
           <p className="text-3xl font-bold text-[#5ecf4f] mb-1">{formatCurrency(lastOrder.total)}</p>
           {lastOrder.changeAmount > 0 && (
@@ -366,9 +451,9 @@ export default function POSPage() {
           )}
           <div className="space-y-1 mb-6 text-sm text-[#aba8a4] bg-[#191c19] rounded-2xl p-4">
             {lastOrder.items?.map((item: any) => (
-              <div key={item.id} className="flex justify-between">
+              <div key={item.menuItemId ?? item.id} className="flex justify-between">
                 <span>{item.quantity}× {item.name}</span>
-                <span className="text-[#f4efeb]">{formatCurrency(item.subtotal)}</span>
+                <span className="text-[#f4efeb]">{formatCurrency(item.subtotal ?? item.price * item.quantity)}</span>
               </div>
             ))}
             <div className="border-t border-[#2b2f2b] pt-2 mt-2 flex justify-between font-semibold text-[#f4efeb]">
@@ -376,22 +461,27 @@ export default function POSPage() {
             </div>
           </div>
           <div className="flex gap-2">
-            <button onClick={() => window.print()}
-              className="flex-1 flex items-center justify-center gap-2 bg-[#191c19] hover:bg-[#232623] border border-[#2b2f2b] text-[#f4efeb] rounded-2xl py-3 text-sm font-medium transition-colors">
-              <Printer size={15} /> Print Receipt
-            </button>
+            {!isOfflineOrder && (
+              <button onClick={() => window.print()}
+                className="flex-1 flex items-center justify-center gap-2 bg-[#191c19] hover:bg-[#232623] border border-[#2b2f2b] text-[#f4efeb] rounded-2xl py-3 text-sm font-medium transition-colors">
+                <Printer size={15} /> Print Receipt
+              </button>
+            )}
             <button onClick={() => setLastOrder(null)}
               className="flex-1 bg-[#349f2d] hover:bg-[#287e22] text-white rounded-2xl py-3 font-semibold text-sm transition-colors">
               New Order
             </button>
           </div>
         </div>
-        <Receipt80mm
-          order={lastOrder}
-          session={posSession}
-          businessName={receiptSettings.businessName}
-          receiptFooter={receiptSettings.receiptFooter}
-        />
+        {/* Only render receipt for online orders (offline orders have no server-assigned orderNumber) */}
+        {!isOfflineOrder && (
+          <Receipt80mm
+            order={lastOrder}
+            session={posSession}
+            businessName={receiptSettings.businessName}
+            receiptFooter={receiptSettings.receiptFooter}
+          />
+        )}
       </div>
     );
   }
@@ -728,6 +818,40 @@ export default function POSPage() {
   /* ─── Main Register View ─────────────────────────────────────────── */
   return (
     <div className="h-screen flex flex-col bg-[#111311] overflow-hidden">
+
+      {/* ── Offline / sync banner — shown when device has no internet or pending orders ── */}
+      {(!isOnline || pendingCount > 0) && (
+        <div className={`shrink-0 flex items-center justify-between px-3 py-1.5 text-xs font-medium ${
+          !isOnline
+            ? 'bg-yellow-400/15 border-b border-yellow-400/30 text-yellow-300'
+            : 'bg-blue-400/10 border-b border-blue-400/20 text-blue-300'
+        }`}>
+          <div className="flex items-center gap-2">
+            {!isOnline ? (
+              <><AlertCircle size={12}/> No internet — orders will be saved locally until reconnected</>
+            ) : (
+              <><Clock size={12}/> {pendingCount} offline order{pendingCount !== 1 ? 's' : ''} waiting to sync</>
+            )}
+          </div>
+          {isOnline && pendingCount > 0 && (
+            <button
+              onClick={async () => {
+                setSyncing(true);
+                try {
+                  await syncPendingOrders();
+                  const remaining = await getPendingOrders();
+                  setPendingCount(remaining.length);
+                  fetchOrders(); fetchSession();
+                } finally { setSyncing(false); }
+              }}
+              disabled={syncing}
+              className="underline underline-offset-2 hover:opacity-80 disabled:opacity-50 transition-opacity">
+              {syncing ? 'Syncing…' : 'Sync now'}
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Top bar */}
       <header className="shrink-0 flex items-center justify-between px-3 py-2.5 bg-[#0a0b0a] border-b border-[#2b2f2b]">
         <div className="flex items-center gap-2">
