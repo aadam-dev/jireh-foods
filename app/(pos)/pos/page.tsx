@@ -15,7 +15,7 @@ import { enqueueOrder, getPendingOrders, syncPendingOrders } from '@/src/lib/off
 
 /* ─── Types ─────────────────────────────────────────────────────────── */
 interface CartItem { menuItemId: string; name: string; price: number; quantity: number; notes?: string }
-interface MenuCategory { id: string; name: string; items: { id: string; name: string; price: number; description?: string; isPopular: boolean }[] }
+interface MenuCategory { id: string; name: string; items: { id: string; name: string; price: number; description?: string; isPopular: boolean; image?: string | null }[] }
 interface PosSession { id: string; openedByUser: { name: string }; openedAt: string; openingFloat: number; status: string }
 interface SessionStats { revenue: number; cashRevenue: number }
 
@@ -919,17 +919,38 @@ export default function POSPage() {
                 const inCart = cart.find(c => c.menuItemId === item.id);
                 return (
                   <button key={item.id} onClick={() => addToCart(item)}
-                    className={`relative text-left rounded-2xl p-4 min-h-[90px] border transition-all active:scale-[0.97] ${inCart ? 'bg-[#349f2d]/20 border-[#349f2d]/50' : 'bg-[#191c19] border-[#2b2f2b] hover:border-[#404540] hover:bg-[#1b1e1b]'}`}>
+                    className={`relative text-left rounded-2xl overflow-hidden border transition-all active:scale-[0.97] ${inCart ? 'bg-[#349f2d]/20 border-[#349f2d]/50' : 'bg-[#191c19] border-[#2b2f2b] hover:border-[#404540] hover:bg-[#1b1e1b]'}`}>
+                    {/* Quantity badge */}
                     {inCart && (
-                      <span className="absolute top-2.5 right-2.5 w-6 h-6 bg-[#349f2d] rounded-full flex items-center justify-center text-xs font-bold text-white">
+                      <span className="absolute top-2 right-2 z-10 w-6 h-6 bg-[#349f2d] rounded-full flex items-center justify-center text-xs font-bold text-white shadow-lg">
                         {inCart.quantity}
                       </span>
                     )}
+                    {/* Popular badge */}
                     {item.isPopular && !inCart && (
-                      <span className="absolute top-2.5 right-2.5 text-[10px] font-bold text-yellow-400 bg-yellow-400/10 px-1.5 py-0.5 rounded-full border border-yellow-400/30">★ Popular</span>
+                      <span className="absolute top-2 right-2 z-10 text-[10px] font-bold text-yellow-400 bg-yellow-400/10 px-1.5 py-0.5 rounded-full border border-yellow-400/30">★</span>
                     )}
-                    <p className="text-[15px] font-semibold text-[#f4efeb] leading-snug mb-2 pr-6">{item.name}</p>
-                    <p className="text-base font-bold text-[#5ecf4f]">{formatCurrency(item.price)}</p>
+                    {/* Item image */}
+                    {item.image ? (
+                      <div className="w-full h-20 bg-[#141714] overflow-hidden">
+                        <Image
+                          src={item.image}
+                          alt={item.name}
+                          width={200}
+                          height={80}
+                          className="w-full h-full object-cover opacity-90"
+                        />
+                      </div>
+                    ) : (
+                      <div className="w-full h-14 bg-[#141714] flex items-center justify-center">
+                        <span className="text-2xl opacity-30">🍽</span>
+                      </div>
+                    )}
+                    {/* Text */}
+                    <div className="p-3">
+                      <p className="text-[13px] font-semibold text-[#f4efeb] leading-snug mb-1">{item.name}</p>
+                      <p className="text-sm font-bold text-[#5ecf4f]">{formatCurrency(item.price)}</p>
+                    </div>
                   </button>
                 );
               })}
