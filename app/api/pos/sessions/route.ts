@@ -2,6 +2,27 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/src/lib/auth';
 import { prisma } from '@/src/lib/prisma';
 
+// Break down orders into per-method revenue, handling SPLIT orders correctly.
+function calcRevenue(orders: { total: unknown; paymentMethod: string; splitPayments: unknown }[]) {
+  let cash = 0, momo = 0, bolt = 0, total = 0;
+  for (const o of orders) {
+    const amt = Number(o.total);
+    total += amt;
+    if (o.paymentMethod === 'SPLIT' && Array.isArray(o.splitPayments)) {
+      for (const leg of o.splitPayments as { method: string; amount: number }[]) {
+        if (leg.method === 'CASH')      cash += leg.amount;
+        else if (leg.method === 'MOMO') momo += leg.amount;
+        else if (leg.method === 'BOLT_FOOD') bolt += leg.amount;
+      }
+    } else {
+      if (o.paymentMethod === 'CASH')      cash += amt;
+      else if (o.paymentMethod === 'MOMO') momo += amt;
+      else if (o.paymentMethod === 'BOLT_FOOD') bolt += amt;
+    }
+  }
+  return { revenue: total, cashRevenue: cash, momoRevenue: momo, boltRevenue: bolt };
+}
+
 // GET /api/pos/sessions — current open session (if any)
 export async function GET() {
   const session = await auth();
@@ -16,23 +37,18 @@ export async function GET() {
     orderBy: { openedAt: 'desc' },
   });
 
-  // Compute session revenue
-  let revenue = 0;
-  let cashRevenue = 0;
-  let momoRevenue = 0;
-  let boltRevenue = 0;
+  // Compute session revenue (handles SPLIT orders via calcRevenue)
+  let stats = { revenue: 0, cashRevenue: 0, momoRevenue: 0, boltRevenue: 0 };
   if (open) {
     const orders = await prisma.order.findMany({
       where: { sessionId: open.id, status: 'COMPLETED', isDemo: false },
-      select: { total: true, paymentMethod: true },
+      select: { total: true, paymentMethod: true, splitPayments: true },
     });
-    revenue = orders.reduce((s, o) => s + Number(o.total), 0);
-    cashRevenue = orders.filter(o => o.paymentMethod === 'CASH').reduce((s, o) => s + Number(o.total), 0);
-    momoRevenue = orders.filter(o => o.paymentMethod === 'MOMO').reduce((s, o) => s + Number(o.total), 0);
-    boltRevenue = orders.filter(o => o.paymentMethod === 'BOLT_FOOD').reduce((s, o) => s + Number(o.total), 0);
+    const r = calcRevenue(orders as any);
+    stats = { revenue: r.revenue, cashRevenue: r.cashRevenue, momoRevenue: r.momoRevenue, boltRevenue: r.boltRevenue };
   }
 
-  return NextResponse.json({ session: open, revenue, cashRevenue, momoRevenue, boltRevenue });
+  return NextResponse.json({ session: open, ...stats });
 }
 
 // POST /api/pos/sessions — open a new session
@@ -81,26 +97,29 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: 'Session not found or already closed' }, { status: 404 });
   }
 
-  // Compute expected amounts per payment method before closing
+  // Compute expected amounts per payment method before closing (handles SPLIT)
   const orders = await prisma.order.findMany({
     where: { sessionId, status: 'COMPLETED', isDemo: false },
-    select: { total: true, paymentMethod: true },
+    select: { total: true, paymentMethod: true, splitPayments: true },
   });
 
-  const totalRevenue   = orders.reduce((s, o) => s + Number(o.total), 0);
-  const cashRevenue    = orders.filter(o => o.paymentMethod === 'CASH').reduce((s, o) => s + Number(o.total), 0);
-  const momoRevenue    = orders.filter(o => o.paymentMethod === 'MOMO').reduce((s, o) => s + Number(o.total), 0);
-  const boltRevenue    = orders.filter(o => o.paymentMethod === 'BOLT_FOOD').reduce((s, o) => s + Number(o.total), 0);
+  const { revenue: totalRevenue, cashRevenue, momoRevenue, boltRevenue } = calcRevenue(orders as any);
 
   const expectedCash = Number(pos.openingFloat) + cashRevenue;
-
   const actualCash = parseFloat(closingCash ?? '0');
   const actualMomo = closingMomo != null ? parseFloat(closingMomo) : momoRevenue;
   const actualBolt = closingBolt != null ? parseFloat(closingBolt) : boltRevenue;
 
-  const revenueByMethod: Record<string, number> = {};
+  // revenueByMethod for the summary display
+  const revenueByMethod: Record<string, number> = {
+    CASH: cashRevenue, MOMO: momoRevenue, BOLT_FOOD: boltRevenue,
+  };
+  // Add any other methods (CARD, BANK_TRANSFER etc.) from non-split orders
   for (const o of orders) {
-    revenueByMethod[o.paymentMethod] = (revenueByMethod[o.paymentMethod] ?? 0) + Number(o.total);
+    if (o.paymentMethod !== 'SPLIT' && o.paymentMethod !== 'CASH' &&
+        o.paymentMethod !== 'MOMO' && o.paymentMethod !== 'BOLT_FOOD') {
+      revenueByMethod[o.paymentMethod] = (revenueByMethod[o.paymentMethod] ?? 0) + Number(o.total);
+    }
   }
 
   const closed = await prisma.posSession.update({

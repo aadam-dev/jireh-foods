@@ -146,6 +146,16 @@ export default function POSPage() {
   const [momoAmountStr, setMomoAmountStr] = useState('0');  // amount customer paid via MoMo
   const [paymentRef, setPaymentRef] = useState('');
 
+  // Split payment
+  const [isSplit, setIsSplit] = useState(false);
+  // Active leg being edited in split mode: 'CASH' | 'MOMO' | 'BOLT_FOOD'
+  const [splitActiveLeg, setSplitActiveLeg] = useState<'CASH'|'MOMO'|'BOLT_FOOD'>('CASH');
+  const [splitCashStr, setSplitCashStr]     = useState('0');
+  const [splitMomoStr, setSplitMomoStr]     = useState('0');
+  const [splitBoltStr, setSplitBoltStr]     = useState('0');
+  const [splitMomoRef, setSplitMomoRef]     = useState('');
+  const [splitBoltRef, setSplitBoltRef]     = useState('');
+
   // Mobile tab: 'menu' | 'cart' (only used on small screens)
   const [mobileTab, setMobileTab] = useState<'menu'|'cart'>('menu');
 
@@ -305,6 +315,8 @@ export default function POSPage() {
   const clearCart = () => {
     setCart([]); setCustomerName(''); setCustomerPhone(''); setOrderNotes('');
     setDiscountAmount(0); setTenderedStr('0'); setMomoAmountStr('0'); setPaymentRef('');
+    setIsSplit(false); setSplitCashStr('0'); setSplitMomoStr('0'); setSplitBoltStr('0');
+    setSplitMomoRef(''); setSplitBoltRef('');
     try { localStorage.removeItem(CART_KEY); } catch {}
   };
 
@@ -313,22 +325,40 @@ export default function POSPage() {
   const tendered = parseFloat(tenderedStr) || 0;
   const momoAmount = parseFloat(momoAmountStr) || 0;
   const change = paymentMethod === 'CASH' ? Math.max(0, tendered - total) : 0;
-  const canCharge = cart.length > 0
-    && (paymentMethod !== 'CASH' || tendered >= total)
-    && (paymentMethod !== 'MOMO' || momoAmount > 0);
+  // Split totals
+  const splitCash = parseFloat(splitCashStr) || 0;
+  const splitMomo = parseFloat(splitMomoStr) || 0;
+  const splitBolt = parseFloat(splitBoltStr) || 0;
+  const splitSum  = splitCash + splitMomo + splitBolt;
+  const splitOk   = isSplit && Math.abs(splitSum - total) < 0.01 && splitSum > 0;
+
+  const canCharge = cart.length > 0 && (
+    isSplit
+      ? splitOk
+      : (paymentMethod !== 'CASH' || tendered >= total)
+        && (paymentMethod !== 'MOMO' || momoAmount > 0)
+  );
 
   const placeOrder = async () => {
     if (cart.length === 0) return;
     setPlacing(true);
 
+    // Build split legs (only include non-zero legs)
+    const splitLegs = isSplit ? [
+      splitCash > 0 ? { method: 'CASH',      amount: splitCash } : null,
+      splitMomo > 0 ? { method: 'MOMO',      amount: splitMomo, ref: splitMomoRef || undefined } : null,
+      splitBolt > 0 ? { method: 'BOLT_FOOD', amount: splitBolt, ref: splitBoltRef || undefined } : null,
+    ].filter(Boolean) : null;
+
     const orderPayload = {
       items: cart,
-      paymentMethod,
+      paymentMethod: isSplit ? 'SPLIT' : paymentMethod,
       deliveryType,
-      paymentRef: paymentRef || undefined,
-      tenderedAmount: paymentMethod === 'CASH' ? tendered
-                    : paymentMethod === 'MOMO'  ? momoAmount
-                    : undefined,
+      paymentRef: !isSplit ? (paymentRef || undefined) : undefined,
+      tenderedAmount: !isSplit
+        ? (paymentMethod === 'CASH' ? tendered : paymentMethod === 'MOMO' ? momoAmount : undefined)
+        : undefined,
+      splitPayments: splitLegs ?? undefined,
       discountAmount,
       sessionId: posSession?.id,
       customerName: customerName || undefined,
@@ -696,28 +726,34 @@ export default function POSPage() {
               className="flex-1 bg-[#191c19] border border-[#2b2f2b] rounded-xl px-3 py-2 text-sm text-[#f4efeb] focus:outline-none focus:border-[#349f2d]" placeholder="0" />
           </div>
 
-          {/* Payment method */}
-          <div className="grid grid-cols-4 gap-1.5">
-            {PAYMENT_METHODS.map(pm => {
-              const Icon = pm.icon;
-              return (
-                <button key={pm.id} onClick={() => setPaymentMethod(pm.id)}
-                  className={`flex flex-col items-center gap-1.5 py-3 rounded-xl text-xs font-medium transition-all border ${paymentMethod === pm.id ? 'bg-[#349f2d]/20 text-[#5ecf4f] border-[#349f2d]/40' : 'text-[#aba8a4] border-[#2b2f2b] hover:border-[#404540]'}`}>
-                  <Icon size={18}/>{pm.label}
-                </button>
-              );
-            })}
+          {/* Payment method row + Split toggle */}
+          <div className="flex gap-1.5">
+            <div className={`grid gap-1.5 flex-1 ${isSplit ? 'grid-cols-3' : 'grid-cols-3'}`}>
+              {PAYMENT_METHODS.map(pm => {
+                const Icon = pm.icon;
+                const active = !isSplit && paymentMethod === pm.id;
+                return (
+                  <button key={pm.id} onClick={() => { setIsSplit(false); setPaymentMethod(pm.id); }}
+                    className={`flex flex-col items-center gap-1.5 py-3 rounded-xl text-xs font-medium transition-all border ${active ? 'bg-[#349f2d]/20 text-[#5ecf4f] border-[#349f2d]/40' : 'text-[#aba8a4] border-[#2b2f2b] hover:border-[#404540]'}`}>
+                    <Icon size={18}/>{pm.label}
+                  </button>
+                );
+              })}
+            </div>
+            {/* Split toggle */}
+            <button onClick={() => setIsSplit(s => !s)}
+              className={`flex flex-col items-center justify-center gap-1 px-3 rounded-xl text-[10px] font-bold transition-all border shrink-0 ${isSplit ? 'bg-purple-500/20 text-purple-300 border-purple-500/40' : 'text-[#aba8a4] border-[#2b2f2b] hover:border-[#404540]'}`}>
+              <span className="text-base leading-none">⊕</span>Split
+            </button>
           </div>
 
-          {/* Cash numpad */}
-          {paymentMethod === 'CASH' && (
+          {/* ── Single-method panels ─────────────────────────────────── */}
+          {!isSplit && paymentMethod === 'CASH' && (
             <div className="space-y-3">
               <div className="bg-[#191c19] border border-[#2b2f2b] rounded-2xl p-4">
                 <p className="text-xs text-[#aba8a4] mb-1">Amount Tendered</p>
-                <p className="text-3xl font-bold text-[#f4efeb] font-mono">{formatCurrency(parseFloat(tenderedStr) || 0)}</p>
-                {tendered >= total && (
-                  <p className="text-lg font-semibold text-[#5ecf4f] mt-1">Change: {formatCurrency(change)}</p>
-                )}
+                <p className="text-3xl font-bold text-[#f4efeb] tabular-nums">{formatCurrency(tendered)}</p>
+                {tendered >= total && <p className="text-lg font-semibold text-[#5ecf4f] mt-1">Change: {formatCurrency(change)}</p>}
               </div>
               <Numpad value={tenderedStr} onChange={setTenderedStr}/>
               <div className="grid grid-cols-3 gap-1.5">
@@ -731,8 +767,7 @@ export default function POSPage() {
             </div>
           )}
 
-          {/* MoMo amount + reference */}
-          {paymentMethod === 'MOMO' && (
+          {!isSplit && paymentMethod === 'MOMO' && (
             <div className="space-y-3">
               <div className="bg-[#191c19] border border-[#2b2f2b] rounded-2xl p-4">
                 <p className="text-xs text-[#aba8a4] mb-1">Amount Sent via MoMo</p>
@@ -748,27 +783,83 @@ export default function POSPage() {
                   </button>
                 ))}
               </div>
-              <input value={paymentRef} onChange={e => setPaymentRef(e.target.value)}
-                placeholder="MoMo reference (optional)"
+              <input value={paymentRef} onChange={e => setPaymentRef(e.target.value)} placeholder="MoMo reference (optional)"
                 className="w-full bg-[#191c19] border border-[#2b2f2b] rounded-xl px-3 py-2.5 text-sm text-[#f4efeb] placeholder:text-[#aba8a4]/50 focus:outline-none focus:border-[#349f2d] transition-colors"/>
             </div>
           )}
 
-          {/* Bolt Food */}
-          {paymentMethod === 'BOLT_FOOD' && (
+          {!isSplit && paymentMethod === 'BOLT_FOOD' && (
             <div className="bg-[#191c19] border border-[#60a5fa]/30 rounded-2xl p-4 space-y-3">
-              <div className="flex items-center gap-2">
-                <Zap size={14} className="text-[#60a5fa]" />
-                <p className="text-sm font-medium text-[#f4efeb]">Bolt Food Order Reference</p>
-              </div>
-              <input value={paymentRef} onChange={e => setPaymentRef(e.target.value)}
-                placeholder="Enter Bolt order number / reference"
+              <div className="flex items-center gap-2"><Zap size={14} className="text-[#60a5fa]"/><p className="text-sm font-medium text-[#f4efeb]">Bolt Food Reference</p></div>
+              <input value={paymentRef} onChange={e => setPaymentRef(e.target.value)} placeholder="Enter Bolt order number / reference"
                 className="w-full bg-[#111311] border border-[#2b2f2b] rounded-xl px-3 py-2.5 text-sm text-[#f4efeb] placeholder:text-[#aba8a4]/50 focus:outline-none focus:border-[#60a5fa] transition-colors"/>
-              <p className="text-xs text-[#aba8a4]">
-                Payment collected by Bolt · Amount: <strong className="text-[#60a5fa]">{formatCurrency(total)}</strong>
-              </p>
+              <p className="text-xs text-[#aba8a4]">Payment collected by Bolt · Amount: <strong className="text-[#60a5fa]">{formatCurrency(total)}</strong></p>
             </div>
           )}
+
+          {/* ── Split payment panel ──────────────────────────────────── */}
+          {isSplit && (() => {
+            const remaining = total - splitSum;
+            const legs = [
+              { id: 'CASH'      as const, label: 'Cash',      icon: '💵', val: splitCashStr, set: setSplitCashStr, amt: splitCash },
+              { id: 'MOMO'      as const, label: 'MoMo',      icon: '📱', val: splitMomoStr, set: setSplitMomoStr, amt: splitMomo },
+              { id: 'BOLT_FOOD' as const, label: 'Bolt',      icon: '⚡', val: splitBoltStr, set: setSplitBoltStr, amt: splitBolt },
+            ];
+            const activeLeg = legs.find(l => l.id === splitActiveLeg)!;
+            return (
+              <div className="space-y-3">
+                {/* Progress bar */}
+                <div className="bg-[#191c19] border border-purple-500/30 rounded-2xl p-4">
+                  <div className="flex justify-between text-xs text-[#aba8a4] mb-2">
+                    <span>Split total</span>
+                    <span className={Math.abs(remaining) < 0.01 ? 'text-[#5ecf4f] font-bold' : remaining > 0 ? 'text-yellow-400' : 'text-red-400'}>
+                      {formatCurrency(splitSum)} / {formatCurrency(total)}
+                      {Math.abs(remaining) > 0.01 && ` · ${remaining > 0 ? formatCurrency(remaining) + ' left' : 'over by ' + formatCurrency(-remaining)}`}
+                    </span>
+                  </div>
+                  <div className="h-1.5 bg-[#2b2f2b] rounded-full overflow-hidden">
+                    <div className="h-full bg-[#5ecf4f] transition-all rounded-full" style={{ width: `${Math.min(100, (splitSum / total) * 100)}%` }}/>
+                  </div>
+                </div>
+
+                {/* Leg tabs */}
+                <div className="grid grid-cols-3 gap-1.5">
+                  {legs.map(leg => (
+                    <button key={leg.id} onClick={() => setSplitActiveLeg(leg.id)}
+                      className={`flex flex-col items-center gap-0.5 py-2.5 rounded-xl border text-xs font-medium transition-all ${splitActiveLeg === leg.id ? 'bg-purple-500/20 border-purple-400/40 text-purple-200' : leg.amt > 0 ? 'bg-[#191c19] border-[#349f2d]/30 text-[#5ecf4f]' : 'border-[#2b2f2b] text-[#aba8a4]'}`}>
+                      <span className="text-base leading-none">{leg.icon}</span>
+                      <span>{leg.label}</span>
+                      {leg.amt > 0 && <span className="font-bold">{formatCurrency(leg.amt)}</span>}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Active leg numpad */}
+                <div className="bg-[#191c19] border border-[#2b2f2b] rounded-2xl p-3">
+                  <p className="text-xs text-[#aba8a4] mb-1">{activeLeg.icon} {activeLeg.label} amount</p>
+                  <p className="text-2xl font-black text-[#f4efeb] tabular-nums mb-2">{formatCurrency(activeLeg.amt)}</p>
+                  {/* Quick-fill remaining button */}
+                  {remaining > 0.01 && (
+                    <button onClick={() => activeLeg.set(remaining.toFixed(2))}
+                      className="text-xs text-[#5ecf4f] bg-[#349f2d]/10 border border-[#349f2d]/30 rounded-lg px-2 py-1 mb-2 hover:bg-[#349f2d]/20 transition-colors">
+                      Fill remaining {formatCurrency(remaining)}
+                    </button>
+                  )}
+                </div>
+                <Numpad value={activeLeg.val} onChange={activeLeg.set}/>
+
+                {/* MoMo / Bolt reference fields */}
+                {splitActiveLeg === 'MOMO' && (
+                  <input value={splitMomoRef} onChange={e => setSplitMomoRef(e.target.value)} placeholder="MoMo reference (optional)"
+                    className="w-full bg-[#191c19] border border-[#2b2f2b] rounded-xl px-3 py-2.5 text-sm text-[#f4efeb] placeholder:text-[#aba8a4]/50 focus:outline-none focus:border-[#349f2d] transition-colors"/>
+                )}
+                {splitActiveLeg === 'BOLT_FOOD' && (
+                  <input value={splitBoltRef} onChange={e => setSplitBoltRef(e.target.value)} placeholder="Bolt reference (optional)"
+                    className="w-full bg-[#191c19] border border-[#2b2f2b] rounded-xl px-3 py-2.5 text-sm text-[#f4efeb] placeholder:text-[#aba8a4]/50 focus:outline-none focus:border-[#60a5fa] transition-colors"/>
+                )}
+              </div>
+            );
+          })()}
 
           {/* Customer */}
           <div className="grid grid-cols-2 gap-2">

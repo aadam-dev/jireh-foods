@@ -17,17 +17,26 @@ const orderItemSchema = z.object({
   subtotal: z.coerce.number().optional(),
 });
 
+// A single leg of a split payment: method + amount + optional ref
+const splitLegSchema = z.object({
+  method: z.enum(['CASH', 'MOMO', 'BOLT_FOOD', 'CARD', 'BANK_TRANSFER']),
+  amount: z.coerce.number().positive(),
+  ref: z.string().optional(),
+});
+
 const createOrderSchema = z.object({
   items: z.array(orderItemSchema).min(1),
-  paymentMethod: z.enum(['CASH', 'MOMO', 'BOLT_FOOD', 'CARD', 'BANK_TRANSFER', 'UNPAID']),
-  deliveryType: z.enum(['DINE_IN', 'TAKEAWAY', 'DELIVERY']).default('DINE_IN'),
+  paymentMethod: z.enum(['CASH', 'MOMO', 'BOLT_FOOD', 'CARD', 'BANK_TRANSFER', 'UNPAID', 'SPLIT']),
+  deliveryType: z.enum(['DINE_IN', 'TAKEAWAY', 'DELIVERY']).default('TAKEAWAY'),
   paymentRef: z.string().optional(),
-  tenderedAmount: z.number().optional(),
-  discountAmount: z.number().default(0),
-  sessionId: z.string().optional(), // required for real orders; IT demo account may omit
+  tenderedAmount: z.coerce.number().optional(),
+  discountAmount: z.coerce.number().default(0),
+  sessionId: z.string().optional(),
   customerName: z.string().optional(),
   customerPhone: z.string().optional(),
   notes: z.string().optional(),
+  // Split payment legs — required when paymentMethod === 'SPLIT'
+  splitPayments: z.array(splitLegSchema).optional(),
 });
 
 export async function POST(req: NextRequest) {
@@ -100,7 +109,36 @@ export async function POST(req: NextRequest) {
   const taxRate = await getTaxRate();
   const taxAmount = taxableAmount * taxRate;
   const total = taxableAmount + taxAmount;
-  const changeAmount = data.tenderedAmount != null ? Math.max(0, data.tenderedAmount - total) : undefined;
+
+  // ── Split payment validation ─────────────────────────────────────────
+  if (data.paymentMethod === 'SPLIT') {
+    if (!data.splitPayments || data.splitPayments.length < 2) {
+      return NextResponse.json(
+        { error: 'Split payment requires at least 2 payment legs.' },
+        { status: 400 }
+      );
+    }
+    const splitTotal = data.splitPayments.reduce((s, p) => s + p.amount, 0);
+    if (Math.abs(splitTotal - total) > 0.01) {
+      return NextResponse.json(
+        { error: `Split amounts (GH₵${splitTotal.toFixed(2)}) must equal order total (GH₵${total.toFixed(2)}).` },
+        { status: 400 }
+      );
+    }
+  }
+
+  // For single-method cash: compute change. For split: cash leg handles change.
+  const cashLeg = data.paymentMethod === 'SPLIT'
+    ? data.splitPayments?.find(p => p.method === 'CASH')
+    : null;
+  const tenderedForChange = cashLeg ? cashLeg.amount : data.tenderedAmount;
+  const cashTotal = data.paymentMethod === 'SPLIT'
+    ? (cashLeg?.amount ?? 0)
+    : data.paymentMethod === 'CASH' ? total : 0;
+  const changeAmount = tenderedForChange != null && data.paymentMethod !== 'SPLIT'
+    ? Math.max(0, tenderedForChange - total)
+    : undefined;
+
   const isDemo = isItAdmin; // demo orders are excluded from all revenue reporting
 
   // Run order creation + BOM deductions atomically
@@ -119,6 +157,7 @@ export async function POST(req: NextRequest) {
         taxAmount,
         total,
         tenderedAmount: data.tenderedAmount ?? null,
+        splitPayments: data.splitPayments ? (data.splitPayments as any) : undefined,
         changeAmount: changeAmount ?? null,
         sessionId: data.sessionId ?? null,
         customerName: data.customerName,

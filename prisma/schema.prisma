@@ -39,6 +39,7 @@ enum PaymentMethod {
   CARD
   BANK_TRANSFER
   UNPAID
+  SPLIT
 }
 
 enum DeliveryType {
@@ -191,6 +192,7 @@ model Order {
   total           Decimal       @db.Decimal(10, 2)
   tenderedAmount  Decimal?      @db.Decimal(10, 2)
   changeAmount    Decimal?      @db.Decimal(10, 2)
+  splitPayments   Json?         // [{method, amount, ref?}] for SPLIT orders
   notes           String?
   customerName    String?
   customerPhone   String?
