@@ -65,6 +65,7 @@ export function PaymentBadge({ method }: { method: string }) {
     CARD: { label: 'Card', variant: 'purple' },
     BANK_TRANSFER: { label: 'Bank', variant: 'purple' },
     UNPAID: { label: 'Unpaid', variant: 'red' },
+    SPLIT: { label: 'Split', variant: 'gray' },
   };
   const cfg = map[method] ?? { label: method, variant: 'gray' as BadgeVariant };
   return <Badge variant={cfg.variant}>{cfg.label}</Badge>;

@@ -27,6 +27,7 @@ const PAYMENT_METHODS = [
 const PAYMENT_LABELS: Record<string, string> = {
   CASH: 'Cash', MOMO: 'Mobile Money', BOLT_FOOD: 'Bolt Food',
   CARD: 'Card', BANK_TRANSFER: 'Bank Transfer', UNPAID: 'Unpaid',
+  SPLIT: 'Split Payment',
 };
 const DELIVERY_TYPES = [
   { id: 'DINE_IN', label: 'Dine In' },
@@ -99,13 +100,23 @@ function Receipt80mm({
       <div className="flex justify-between font-bold text-[13px]">
         <span>TOTAL</span><span>{formatCurrency(order.total)}</span>
       </div>
-      <div className="flex justify-between mt-0.5">
-        <span>Payment ({PAYMENT_LABELS[order.paymentMethod] ?? order.paymentMethod})</span>
-        {order.tenderedAmount && <span>Tendered: {formatCurrency(order.tenderedAmount)}</span>}
-      </div>
+      {/* Payment section — split orders show each leg */}
+      {order.paymentMethod === 'SPLIT' && Array.isArray(order.splitPayments)
+        ? order.splitPayments.map((leg: any, i: number) => (
+            <div key={i} className="flex justify-between mt-0.5">
+              <span>{PAYMENT_LABELS[leg.method] ?? leg.method}</span>
+              <span>{formatCurrency(leg.amount)}</span>
+            </div>
+          ))
+        : (
+          <div className="flex justify-between mt-0.5">
+            <span>Payment ({PAYMENT_LABELS[order.paymentMethod] ?? order.paymentMethod})</span>
+            {order.tenderedAmount && <span>Tendered: {formatCurrency(order.tenderedAmount)}</span>}
+          </div>
+        )
+      }
       {order.changeAmount > 0 && (
-        <div className="flex justify-between font-bold"><span>Change</span><span>{formatCurrency(order.changeAmount)}</span>
-        </div>
+        <div className="flex justify-between font-bold"><span>Change</span><span>{formatCurrency(order.changeAmount)}</span></div>
       )}
       {order.paymentRef && <div>Ref: {order.paymentRef}</div>}
       <div className="border-t border-dashed border-black my-1" />

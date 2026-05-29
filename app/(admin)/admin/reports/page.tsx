@@ -53,7 +53,7 @@ const PAYMENT_COLORS: Record<string, string> = {
   CASH: '#5ecf4f', MOMO: '#f59e0b', BOLT_FOOD: '#60a5fa', CARD: '#a78bfa', BANK_TRANSFER: '#c084fc', UNPAID: '#6b7280',
 };
 const PAYMENT_LABELS: Record<string, string> = {
-  CASH: 'Cash', MOMO: 'Mobile Money', BOLT_FOOD: 'Bolt Food', CARD: 'Card', BANK_TRANSFER: 'Bank Transfer', UNPAID: 'Unpaid',
+  CASH: 'Cash', MOMO: 'Mobile Money', BOLT_FOOD: 'Bolt Food', CARD: 'Card', BANK_TRANSFER: 'Bank Transfer', UNPAID: 'Unpaid', SPLIT: 'Split Payment',
 };
 
 const CustomTooltip = ({ active, payload, label }: any) => {

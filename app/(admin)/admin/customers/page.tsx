@@ -29,7 +29,7 @@ interface CustomerProfile {
 
 const PAYMENT_LABELS: Record<string, string> = {
   CASH: 'Cash', MOMO: 'MoMo', BOLT_FOOD: 'Bolt Food',
-  CARD: 'Card', BANK_TRANSFER: 'Bank', UNPAID: 'Unpaid',
+  CARD: 'Card', BANK_TRANSFER: 'Bank', UNPAID: 'Unpaid', SPLIT: 'Split',
 };
 
 export default function CustomersPage() {
