@@ -303,22 +303,36 @@ export default function SettingsPage() {
           {/* Live receipt preview */}
           <div>
             <p className="text-[10px] text-[#aba8a4] uppercase tracking-wide mb-2">Receipt Preview</p>
-            <div className="bg-white text-black rounded-xl p-4 font-mono text-[10px] leading-relaxed shadow-inner">
+            <div className="bg-white text-black rounded-xl p-4 font-mono text-[10px] leading-tight shadow-inner">
+              {/* Brand header */}
               <div className="text-center border-b border-dashed border-gray-300 pb-2 mb-2">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src="/jireh/logo.jpg" alt="logo" className="w-10 h-10 object-contain rounded-full mx-auto mb-1" style={{ filter: 'grayscale(100%) contrast(1.4)' }} />
                 <p className="font-bold text-[12px]">{values.business_name.toUpperCase()}</p>
                 <p className="text-gray-500">{values.receipt_header}</p>
+                <p className="text-gray-500">{values.business_address}</p>
                 <p className="text-gray-500">Tel: {values.business_phone}</p>
                 {values.gra_tin && <p className="text-gray-500">TIN: {values.gra_tin}</p>}
+              </div>
+              {/* Big call number */}
+              <div className="text-center mb-2">
+                <p className="text-[8px] uppercase tracking-widest text-gray-500">Order No.</p>
+                <p className="font-bold text-[22px] leading-none">1234</p>
               </div>
               <div className="space-y-0.5 border-b border-dashed border-gray-300 pb-2 mb-2">
                 <div className="flex justify-between"><span>1× Jollof Rice Med</span><span>GH₵55</span></div>
                 <div className="flex justify-between"><span>2× Sobolo</span><span>GH₵20</span></div>
+                <div className="text-[8px] text-gray-500 pl-3">@ GH₵10 each</div>
               </div>
-              <div className="flex justify-between font-bold border-b border-dashed border-gray-300 pb-2 mb-2">
-                <span>TOTAL</span>
-                <span>{taxRate > 0 ? formatCurrency(75 * (1 + taxRate)) : 'GH₵75'}</span>
+              <div className="space-y-0.5 border-b border-dashed border-gray-300 pb-2 mb-2">
+                <div className="flex justify-between text-gray-600"><span>Subtotal</span><span>GH₵75</span></div>
+                {taxRate > 0 && <div className="flex justify-between text-gray-600"><span>Tax</span><span>{formatCurrency(75 * taxRate)}</span></div>}
+                <div className="flex justify-between font-bold"><span>TOTAL</span><span>{taxRate > 0 ? formatCurrency(75 * (1 + taxRate)) : 'GH₵75'}</span></div>
+                <div className="flex justify-between text-gray-600"><span>Paid · Cash</span><span>{taxRate > 0 ? formatCurrency(75 * (1 + taxRate)) : 'GH₵75'}</span></div>
+                <div className="flex justify-between text-gray-600"><span>Tendered</span><span>GH₵100</span></div>
+                <div className="flex justify-between font-semibold"><span>Change</span><span>{taxRate > 0 ? formatCurrency(100 - 75 * (1 + taxRate)) : 'GH₵25'}</span></div>
               </div>
-              <div className="text-center text-gray-500 border-t border-dashed border-gray-300 pt-2 mt-2">
+              <div className="text-center text-gray-500 pt-1">
                 {values.receipt_footer.split('\n').map((line, i) => <p key={i}>{line}</p>)}
               </div>
             </div>

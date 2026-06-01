@@ -59,11 +59,16 @@ function Numpad({ value, onChange }: { value: string; onChange: (v: string) => v
 }
 
 /* ─── Receipt Component ─────────────────────────────────────────────── */
+const DELIVERY_LABELS: Record<string, string> = {
+  DINE_IN: 'Dine In', TAKEAWAY: 'Takeaway', DELIVERY: 'Delivery',
+};
+
 function Receipt80mm({
   order,
   session: posSession,
   businessName = 'JIREH NATURAL FOODS',
   businessPhone = '055 113 3481',
+  businessAddress = 'Adenta Housing Down, Accra',
   receiptHeader = 'Fresh & Healthy — Always',
   receiptFooter = 'Thank you for your patronage!',
 }: {
@@ -71,66 +76,115 @@ function Receipt80mm({
   session: PosSession | null;
   businessName?: string;
   businessPhone?: string;
+  businessAddress?: string;
   receiptHeader?: string;
   receiptFooter?: string;
 }) {
+  // Kitchen/pickup "call number" — last numeric block of the order number (e.g. JNF-20260601-1234 → 1234)
+  const callNumber = (order.orderNumber?.split('-').pop()) || order.orderNumber;
+  // Subtotal: prefer server value, else derive from line items
+  const subtotal = Number(
+    order.subtotal ?? order.items?.reduce((s: number, i: any) => s + (i.subtotal ?? i.price * i.quantity), 0) ?? order.total
+  );
+  const discount = Number(order.discountAmount ?? 0);
+  const tax = Number(order.taxAmount ?? 0);
+  const dash = 'border-t border-dashed border-black';
+
   return (
-    <div id="receipt-print" className="hidden print:block font-mono text-[11px] w-[72mm] mx-auto">
-      <div className="text-center mb-2">
-        <div className="font-bold text-[14px]">{businessName.toUpperCase()}</div>
-        {receiptHeader && <div>{receiptHeader}</div>}
-        <div>Tel: {businessPhone}</div>
-        <div className="border-t border-dashed border-black mt-1 pt-1">
-          {new Date(order.createdAt).toLocaleString('en-GH')}
-        </div>
-        <div>Order: {order.orderNumber}</div>
-        {order.staff && <div>Served by: {order.staff.name}</div>}
-        {posSession && <div>Session: {posSession.id.slice(0,8)}</div>}
-      </div>
-      <div className="border-t border-dashed border-black my-1" />
-      {order.items.map((item: any, i: number) => (
-        <div key={i} className="flex justify-between">
-          <span>{item.quantity}× {item.name}</span>
-          <span>{formatCurrency(item.subtotal)}</span>
-        </div>
-      ))}
-      <div className="border-t border-dashed border-black my-1" />
-      {Number(order.discountAmount) > 0 && (
-        <div className="flex justify-between"><span>Discount</span><span>-{formatCurrency(order.discountAmount)}</span></div>
-      )}
-      {Number(order.taxAmount) > 0 && (
-        <div className="flex justify-between"><span>Tax (GCL)</span><span>{formatCurrency(order.taxAmount)}</span></div>
-      )}
-      <div className="flex justify-between font-bold text-[13px]">
-        <span>TOTAL</span><span>{formatCurrency(order.total)}</span>
-      </div>
-      {/* Payment section — split orders show each leg */}
-      {order.paymentMethod === 'SPLIT' && Array.isArray(order.splitPayments)
-        ? order.splitPayments.map((leg: any, i: number) => (
-            <div key={i} className="flex justify-between mt-0.5">
-              <span>{PAYMENT_LABELS[leg.method] ?? leg.method}</span>
-              <span>{formatCurrency(leg.amount)}</span>
-            </div>
-          ))
-        : (
-          <div className="flex justify-between mt-0.5">
-            <span>Payment ({PAYMENT_LABELS[order.paymentMethod] ?? order.paymentMethod})</span>
-            {order.tenderedAmount && <span>Tendered: {formatCurrency(order.tenderedAmount)}</span>}
-          </div>
-        )
-      }
-      {order.changeAmount > 0 && (
-        <div className="flex justify-between font-bold"><span>Change</span><span>{formatCurrency(order.changeAmount)}</span></div>
-      )}
-      {order.paymentRef && <div>Ref: {order.paymentRef}</div>}
-      <div className="border-t border-dashed border-black my-1" />
+    <div id="receipt-print" className="hidden print:block font-mono text-[11px] leading-tight w-[72mm] mx-auto text-black">
+
+      {/* ── Brand header ── */}
       <div className="text-center">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src="/jireh/logo.jpg"
+          alt={businessName}
+          className="mx-auto mb-1 w-16 h-16 object-contain rounded-full"
+          style={{ filter: 'grayscale(100%) contrast(1.4)' }}
+        />
+        <div className="font-bold text-[15px] tracking-wide">{businessName.toUpperCase()}</div>
+        {receiptHeader && <div className="text-[10px]">{receiptHeader}</div>}
+        {businessAddress && <div className="text-[10px]">{businessAddress}</div>}
+        <div className="text-[10px]">Tel: {businessPhone}</div>
+      </div>
+
+      {/* ── Order meta ── */}
+      <div className={`${dash} mt-2 pt-1.5 space-y-0.5`}>
+        <div className="flex justify-between"><span>Date</span><span>{new Date(order.createdAt).toLocaleString('en-GH', { dateStyle: 'short', timeStyle: 'short' })}</span></div>
+        <div className="flex justify-between"><span>Ticket</span><span>{order.orderNumber}</span></div>
+        {order.staff?.name && <div className="flex justify-between"><span>Served by</span><span>{order.staff.name}</span></div>}
+        {order.deliveryType && <div className="flex justify-between"><span>Type</span><span>{DELIVERY_LABELS[order.deliveryType] ?? order.deliveryType}</span></div>}
+      </div>
+
+      {/* ── Big call number ── */}
+      <div className="text-center my-2">
+        <div className="text-[9px] uppercase tracking-widest text-gray-600">Order No.</div>
+        <div className="font-bold text-[34px] leading-none">{callNumber}</div>
+      </div>
+
+      {/* ── Line items ── */}
+      <div className={`${dash} pt-1.5 space-y-1`}>
+        {order.items.map((item: any, i: number) => {
+          const lineTotal = item.subtotal ?? item.price * item.quantity;
+          return (
+            <div key={i}>
+              <div className="flex justify-between">
+                <span className="pr-2">{item.quantity}× {item.name}</span>
+                <span className="whitespace-nowrap">{formatCurrency(lineTotal)}</span>
+              </div>
+              {item.quantity > 1 && (
+                <div className="text-[9px] text-gray-600 pl-3">@ {formatCurrency(item.price)} each</div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* ── Totals ── */}
+      <div className={`${dash} mt-1.5 pt-1.5 space-y-0.5`}>
+        <div className="flex justify-between"><span>Subtotal</span><span>{formatCurrency(subtotal)}</span></div>
+        {discount > 0 && <div className="flex justify-between"><span>Discount</span><span>-{formatCurrency(discount)}</span></div>}
+        {tax > 0 && <div className="flex justify-between"><span>Tax (GCL)</span><span>{formatCurrency(tax)}</span></div>}
+        <div className="flex justify-between font-bold text-[14px] pt-0.5">
+          <span>TOTAL</span><span>{formatCurrency(order.total)}</span>
+        </div>
+      </div>
+
+      {/* ── Payment (method · tendered · change retained) ── */}
+      <div className={`${dash} mt-1.5 pt-1.5 space-y-0.5`}>
+        {order.paymentMethod === 'SPLIT' && Array.isArray(order.splitPayments) ? (
+          <>
+            <div className="font-semibold">Split Payment</div>
+            {order.splitPayments.map((leg: any, i: number) => (
+              <div key={i} className="flex justify-between pl-2">
+                <span>{PAYMENT_LABELS[leg.method] ?? leg.method}{leg.ref ? ` (${leg.ref})` : ''}</span>
+                <span>{formatCurrency(leg.amount)}</span>
+              </div>
+            ))}
+          </>
+        ) : (
+          <div className="flex justify-between">
+            <span>Paid · {PAYMENT_LABELS[order.paymentMethod] ?? order.paymentMethod}</span>
+            <span>{formatCurrency(order.total)}</span>
+          </div>
+        )}
+        {order.tenderedAmount != null && Number(order.tenderedAmount) > 0 && (
+          <div className="flex justify-between"><span>Tendered</span><span>{formatCurrency(order.tenderedAmount)}</span></div>
+        )}
+        {Number(order.changeAmount) > 0 && (
+          <div className="flex justify-between font-bold"><span>Change</span><span>{formatCurrency(order.changeAmount)}</span></div>
+        )}
+        {order.paymentRef && <div className="flex justify-between"><span>Ref</span><span>{order.paymentRef}</span></div>}
+      </div>
+
+      {/* ── Footer ── */}
+      <div className={`${dash} mt-2 pt-1.5 text-center`}>
         {receiptFooter.split('\n').map((line, i) => <div key={i}>{line}</div>)}
       </div>
-      {/* Developer credit */}
-      <div className="border-t border-dashed border-black mt-2 pt-1 text-center text-[9px] text-gray-500">
-        <div>powered by aadam</div>
-        <div>aadam.vercel.app · +233 263 039 818</div>
+
+      {/* ── Developer credit ── */}
+      <div className={`${dash} mt-2 pt-1 text-center text-[8px] text-gray-500`}>
+        <div>powered by aadam · aadam.vercel.app</div>
       </div>
     </div>
   );
@@ -149,6 +203,7 @@ export default function POSPage() {
   const [receiptSettings, setReceiptSettings] = useState({
     businessName: 'Jireh Natural Foods',
     businessPhone: '055 113 3481',
+    businessAddress: 'Adenta Housing Down, Accra',
     receiptHeader: 'Fresh & Healthy — Always',
     receiptFooter: 'Thank you for your patronage!',
   });
@@ -302,6 +357,7 @@ export default function POSPage() {
         setReceiptSettings({
           businessName: data.business_name ?? 'Jireh Natural Foods',
           businessPhone: data.business_phone ?? '055 113 3481',
+          businessAddress: data.business_address ?? 'Adenta Housing Down, Accra',
           receiptHeader: data.receipt_header ?? 'Fresh & Healthy — Always',
           receiptFooter: data.receipt_footer ?? 'Thank you for your patronage!',
         });
@@ -572,6 +628,7 @@ export default function POSPage() {
             session={posSession}
             businessName={receiptSettings.businessName}
             businessPhone={receiptSettings.businessPhone}
+            businessAddress={receiptSettings.businessAddress}
             receiptHeader={receiptSettings.receiptHeader}
             receiptFooter={receiptSettings.receiptFooter}
           />
