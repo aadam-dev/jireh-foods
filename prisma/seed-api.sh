@@ -87,13 +87,15 @@ echo "✅ Expense categories seeded (9 categories)"
 # ── Settings ───────────────────────────────────────────────────────────
 run_sql "INSERT INTO \"Settings\" (id, key, value, \"updatedAt\")
 VALUES
-  (gen_random_uuid()::text, 'restaurant_name',    'Jireh Natural Foods',               NOW()),
-  (gen_random_uuid()::text, 'restaurant_phone',   '055 113 3481',                      NOW()),
-  (gen_random_uuid()::text, 'restaurant_email',   'jirehnaturalfoodsgh@gmail.com',     NOW()),
-  (gen_random_uuid()::text, 'restaurant_address', 'Adenta Housing Down, Accra, Ghana', NOW()),
-  (gen_random_uuid()::text, 'currency',           'GH₵',                              NOW()),
-  (gen_random_uuid()::text, 'opening_time',       '09:00',                             NOW()),
-  (gen_random_uuid()::text, 'closing_time',       '20:30',                             NOW())
+  (gen_random_uuid()::text, 'business_name',             'Jireh Natural Foods',               NOW()),
+  (gen_random_uuid()::text, 'business_phone',            '055 113 3481',                      NOW()),
+  (gen_random_uuid()::text, 'business_address',          'Adenta Housing Down, Accra, Ghana', NOW()),
+  (gen_random_uuid()::text, 'currency_symbol',           'GH₵',                              NOW()),
+  (gen_random_uuid()::text, 'tax_rate',                  '0',                                 NOW()),
+  (gen_random_uuid()::text, 'gra_tin',                   '',                                  NOW()),
+  (gen_random_uuid()::text, 'low_stock_alert_threshold', '5',                                 NOW()),
+  (gen_random_uuid()::text, 'receipt_header',            'Fresh & Healthy — Always',          NOW()),
+  (gen_random_uuid()::text, 'receipt_footer',            'Thank you for dining with us!',     NOW())
 ON CONFLICT (key) DO NOTHING;" > /dev/null
 echo "✅ Settings seeded"
 

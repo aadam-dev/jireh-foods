@@ -354,12 +354,14 @@ export default function POSPage() {
       .then(r => r.ok ? r.json() : null)
       .then(data => {
         if (!data) return;
+        // Use `||` (not `??`) so an empty-string setting falls back to the default
+        // instead of printing a blank value on the receipt.
         setReceiptSettings({
-          businessName: data.business_name ?? 'Jireh Natural Foods',
-          businessPhone: data.business_phone ?? '055 113 3481',
-          businessAddress: data.business_address ?? 'Adenta Housing Down, Accra',
-          receiptHeader: data.receipt_header ?? 'Fresh & Healthy — Always',
-          receiptFooter: data.receipt_footer ?? 'Thank you for your patronage!',
+          businessName: data.business_name || 'Jireh Natural Foods',
+          businessPhone: data.business_phone || '055 113 3481',
+          businessAddress: data.business_address || 'Adenta Housing Down, Accra',
+          receiptHeader: data.receipt_header || 'Fresh & Healthy — Always',
+          receiptFooter: data.receipt_footer || 'Thank you for your patronage!',
         });
       })
       .catch(() => {});

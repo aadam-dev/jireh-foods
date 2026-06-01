@@ -124,15 +124,18 @@ async function main() {
   }
   console.log('✅ Expense categories seeded');
 
-  // Settings
+  // Settings — keys MUST match PUBLIC_KEYS in app/api/admin/settings/route.ts
+  // (the Settings UI + POS receipt read these exact keys).
   const settings = [
-    { key: 'restaurant_name', value: 'Jireh Natural Foods' },
-    { key: 'restaurant_phone', value: '055 113 3481' },
-    { key: 'restaurant_email', value: 'jirehnaturalfoodsgh@gmail.com' },
-    { key: 'restaurant_address', value: 'Adenta Housing Down, Accra, Ghana' },
-    { key: 'currency', value: 'GH₵' },
-    { key: 'opening_time', value: '11:00' },
-    { key: 'closing_time', value: '20:00' },
+    { key: 'business_name', value: 'Jireh Natural Foods' },
+    { key: 'business_phone', value: '055 113 3481' },
+    { key: 'business_address', value: 'Adenta Housing Down, Accra, Ghana' },
+    { key: 'currency_symbol', value: 'GH₵' },
+    { key: 'tax_rate', value: '0' },
+    { key: 'gra_tin', value: '' },
+    { key: 'low_stock_alert_threshold', value: '5' },
+    { key: 'receipt_header', value: 'Fresh & Healthy — Always' },
+    { key: 'receipt_footer', value: 'Thank you for dining with us!' },
   ];
   for (const s of settings) {
     await prisma.settings.upsert({
