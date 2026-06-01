@@ -433,6 +433,9 @@ export default function POSPage() {
     ].filter(Boolean) : null;
 
     const orderPayload = {
+      // Idempotency key generated once per attempt; reused if this same payload
+      // is queued offline and re-synced later, so the server never duplicates it.
+      clientRef: (globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`),
       items: cart,
       paymentMethod: isSplit ? 'SPLIT' : paymentMethod,
       deliveryType,

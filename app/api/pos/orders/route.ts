@@ -25,6 +25,8 @@ const splitLegSchema = z.object({
 });
 
 const createOrderSchema = z.object({
+  // Idempotency key from the POS — dedupes offline re-sync and double-taps.
+  clientRef: z.string().max(64).optional(),
   items: z.array(orderItemSchema).min(1),
   paymentMethod: z.enum(['CASH', 'MOMO', 'BOLT_FOOD', 'CARD', 'BANK_TRANSFER', 'UNPAID', 'SPLIT']),
   deliveryType: z.enum(['DINE_IN', 'TAKEAWAY', 'DELIVERY']).default('TAKEAWAY'),
@@ -50,6 +52,19 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: msg }, { status: 400 });
   }
   const data = parsed.data;
+
+  // ── Idempotency ─────────────────────────────────────────────────────
+  // If the POS sent a clientRef and an order with it already exists, return
+  // that order instead of creating a duplicate. This makes offline re-sync
+  // and accidental double-taps safe (no double order, no double stock
+  // deduction — the Odoo "lost/duplicated order" class of bug).
+  if (data.clientRef) {
+    const existing = await prisma.order.findUnique({
+      where: { clientRef: data.clientRef },
+      include: { items: true, staff: { select: { name: true } } },
+    });
+    if (existing) return NextResponse.json(existing); // 200, already processed
+  }
 
   // IT admin demo account — orders are isolated from real sales data
   const userEmail = ((session.user as any).email ?? '').toLowerCase();
@@ -146,6 +161,7 @@ export async function POST(req: NextRequest) {
     const created = await tx.order.create({
       data: {
         orderNumber: generateOrderNumber(),
+        clientRef: data.clientRef ?? null,
         status: 'COMPLETED',
         source: 'POS',
         paymentMethod: data.paymentMethod as any,

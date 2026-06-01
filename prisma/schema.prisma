@@ -178,6 +178,7 @@ model MenuItem {
 model Order {
   id              String        @id @default(cuid())
   orderNumber     String        @unique
+  clientRef       String?       @unique  // idempotency key from POS — dedupes offline re-sync / double-tap
   sessionId       String?
   session         PosSession?   @relation(fields: [sessionId], references: [id])
   status          OrderStatus   @default(PENDING)
