@@ -116,6 +116,7 @@ export default function InventoryPage() {
     .filter(i => !searchQ || i.name.toLowerCase().includes(searchQ.toLowerCase()));
 
   const lowStockCount = items.filter(i => Number(i.quantity) <= Number(i.lowStockThreshold)).length;
+  const oversoldCount = items.filter(i => Number(i.quantity) < 0).length;  // negative = oversold (stock drift)
   const totalStockValue = items.reduce((s, i) => s + Number(i.quantity) * Number(i.costPerUnit ?? 0), 0);
 
   return (
@@ -126,6 +127,7 @@ export default function InventoryPage() {
           <p className="text-sm text-[#aba8a4] mt-0.5">
             {items.length} items · {formatCurrency(totalStockValue)} stock value
             {lowStockCount > 0 && <> · <span className="text-yellow-400">{lowStockCount} low stock</span></>}
+            {oversoldCount > 0 && <> · <span className="text-red-400">{oversoldCount} oversold</span></>}
           </p>
         </div>
         <Button size="sm" icon={<Plus size={14}/>} onClick={() => openItem()}>Add Item</Button>
@@ -160,13 +162,14 @@ export default function InventoryPage() {
                 {displayed.map(item => {
                   const qty = Number(item.quantity);
                   const threshold = Number(item.lowStockThreshold);
+                  const isOversold = qty < 0;          // negative stock = sold more than counted
                   const isLow = qty <= threshold;
                   const cf = Number(item.conversionFactor ?? 1);
                   return (
                     <tr key={item.id} className="hover:bg-white/[0.02] transition-colors">
                       <td className="px-4 py-3 font-medium text-[#f4efeb]">{item.name}</td>
                       <td className="px-4 py-3">
-                        <span className={`font-semibold ${isLow ? 'text-yellow-400' : 'text-[#f4efeb]'}`}>
+                        <span className={`font-semibold ${isOversold ? 'text-red-400' : isLow ? 'text-yellow-400' : 'text-[#f4efeb]'}`}>
                           {qty % 1 === 0 ? qty : qty.toFixed(2)}
                         </span>
                       </td>
@@ -179,7 +182,7 @@ export default function InventoryPage() {
                       <td className="px-4 py-3 text-[#aba8a4]">{threshold} {item.unit}</td>
                       <td className="px-4 py-3 text-[#aba8a4]">{item.costPerUnit ? formatCurrency(item.costPerUnit) : '—'}</td>
                       <td className="px-4 py-3">
-                        {isLow ? <Badge variant="yellow" dot>Low</Badge> : <Badge variant="green" dot>OK</Badge>}
+                        {isOversold ? <Badge variant="red" dot>Oversold</Badge> : isLow ? <Badge variant="yellow" dot>Low</Badge> : <Badge variant="green" dot>OK</Badge>}
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex gap-1">
