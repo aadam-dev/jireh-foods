@@ -5,7 +5,7 @@ import { SectionReveal } from "./components/SectionReveal";
 import { HeroBackground } from "./components/HeroBackground";
 import { JirehLogo } from "./components/JirehLogo";
 import { MapEmbed } from "./components/MapEmbed";
-import { MapPin, Phone, MessageCircle, ShoppingBag, Utensils, CupSoda } from "lucide-react";
+import { MapPin, Phone, MessageCircle, ShoppingBag, Utensils, CupSoda, Lock } from "lucide-react";
 
 const PHONE_DISPLAY = "055 113 3481";
 const PHONE_TEL = "tel:+233551133481";
@@ -665,14 +665,24 @@ export default function Home() {
           <p className="text-sm text-[var(--muted)]">
             © {new Date().getFullYear()} Jireh Natural Foods. All rights reserved.
           </p>
-          <a
-            href={BOLT_FOOD}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-sm text-[var(--accent-bright)] hover:underline flex items-center gap-2"
-          >
-            <ShoppingBag className="w-4 h-4" /> Order on Bolt Food
-          </a>
+          <div className="flex items-center gap-5">
+            <a
+              href={BOLT_FOOD}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-sm text-[var(--accent-bright)] hover:underline flex items-center gap-2"
+            >
+              <ShoppingBag className="w-4 h-4" /> Order on Bolt Food
+            </a>
+            <a
+              href="/login"
+              className="flex items-center gap-1.5 text-xs text-white/20 transition-colors hover:text-white/50"
+              aria-label="Staff login"
+            >
+              <Lock className="w-3 h-3" />
+              <span>Staff</span>
+            </a>
+          </div>
         </div>
       </footer>
     </div>
