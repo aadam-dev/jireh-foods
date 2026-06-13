@@ -16,24 +16,42 @@ export const ROLE_COLORS: Record<UserRole, string> = {
   STAFF: 'text-[#aba8a4] bg-white/5 border-white/10',
 };
 
+/** Roles allowed per admin resource — single source of truth for Sidebar + API. */
+export const RESOURCE_ROLES: Record<string, UserRole[]> = {
+  admin: [UserRole.OWNER, UserRole.MANAGER, UserRole.ACCOUNTANT],
+  dashboard: [UserRole.OWNER, UserRole.MANAGER, UserRole.ACCOUNTANT],
+  orders: [UserRole.OWNER, UserRole.MANAGER, UserRole.ACCOUNTANT],
+  menu: [UserRole.OWNER, UserRole.MANAGER],
+  inventory: [UserRole.OWNER, UserRole.MANAGER],
+  boms: [UserRole.OWNER, UserRole.MANAGER],
+  suppliers: [UserRole.OWNER, UserRole.MANAGER],
+  purchasing: [UserRole.OWNER, UserRole.MANAGER],
+  expenses: [UserRole.OWNER, UserRole.MANAGER, UserRole.ACCOUNTANT],
+  staff: [UserRole.OWNER, UserRole.MANAGER],
+  payroll: [UserRole.OWNER, UserRole.ACCOUNTANT],
+  reports: [UserRole.OWNER, UserRole.MANAGER, UserRole.ACCOUNTANT],
+  customers: [UserRole.OWNER, UserRole.MANAGER, UserRole.ACCOUNTANT],
+  settings: [UserRole.OWNER],
+  settingsRead: [UserRole.OWNER, UserRole.MANAGER, UserRole.ACCOUNTANT],
+  pos: [UserRole.OWNER, UserRole.MANAGER, UserRole.CASHIER, UserRole.STAFF],
+};
+
+export function rolesForResource(resource: string): UserRole[] {
+  return RESOURCE_ROLES[resource] ?? [];
+}
+
 export function canAccess(role: UserRole, resource: string): boolean {
-  const permissions: Record<string, UserRole[]> = {
-    admin: [UserRole.OWNER, UserRole.MANAGER, UserRole.ACCOUNTANT],
-    menu: [UserRole.OWNER, UserRole.MANAGER],
-    orders: [UserRole.OWNER, UserRole.MANAGER, UserRole.CASHIER],
-    inventory: [UserRole.OWNER, UserRole.MANAGER],
-    expenses: [UserRole.OWNER, UserRole.MANAGER, UserRole.ACCOUNTANT],
-    staff: [UserRole.OWNER, UserRole.MANAGER],
-    payroll: [UserRole.OWNER, UserRole.ACCOUNTANT],
-    reports: [UserRole.OWNER, UserRole.MANAGER, UserRole.ACCOUNTANT],
-    settings: [UserRole.OWNER],
-    pos: [UserRole.OWNER, UserRole.MANAGER, UserRole.CASHIER, UserRole.STAFF],
-  };
-  return permissions[resource]?.includes(role) ?? false;
+  return rolesForResource(resource).includes(role);
 }
 
 const ADMIN_ROLES: UserRole[] = [UserRole.OWNER, UserRole.MANAGER, UserRole.ACCOUNTANT];
 
 export function isAdminRole(role: UserRole): boolean {
   return ADMIN_ROLES.includes(role);
+}
+
+/** Only OWNER may create or assign the OWNER role. */
+export function canAssignRole(actorRole: UserRole, targetRole: UserRole): boolean {
+  if (targetRole === UserRole.OWNER) return actorRole === UserRole.OWNER;
+  return actorRole === UserRole.OWNER || actorRole === UserRole.MANAGER;
 }

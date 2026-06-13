@@ -1,16 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { auth } from '@/src/lib/auth';
 import { prisma } from '@/src/lib/prisma';
-
-function generatePoNumber() {
-  const d = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-  const r = Math.floor(100 + Math.random() * 900);
-  return `PO-${d}-${r}`;
-}
+import { UserRole } from '@prisma/client';
+import { requireResource, requireRoles } from '@/src/lib/api-auth';
 
 export async function GET(req: NextRequest) {
-  const session = await auth();
-  if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const authResult = await requireResource('purchasing');
+  if (authResult instanceof NextResponse) return authResult;
 
   const { searchParams } = new URL(req.url);
   const status = searchParams.get('status');
@@ -31,13 +26,17 @@ export async function GET(req: NextRequest) {
   return NextResponse.json(pos);
 }
 
+function generatePoNumber() {
+  const d = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+  const r = Math.floor(100 + Math.random() * 900);
+  return `PO-${d}-${r}`;
+}
+
 export async function POST(req: NextRequest) {
-  const session = await auth();
-  if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  const user = session.user as any;
-  if (!['OWNER', 'MANAGER', 'ACCOUNTANT'].includes(user.role)) {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-  }
+  const authResult = await requireResource('purchasing');
+  if (authResult instanceof NextResponse) return authResult;
+  const forbidden = requireRoles(authResult.user.role, [UserRole.OWNER, UserRole.MANAGER]);
+  if (forbidden) return forbidden;
 
   const body = await req.json();
   const { supplierId, expectedDate, notes, lines } = body;
@@ -58,7 +57,7 @@ export async function POST(req: NextRequest) {
       expectedDate: expectedDate ? new Date(expectedDate) : null,
       notes: notes ?? null,
       totalAmount,
-      createdById: session.user.id!,
+      createdById: authResult.user.id,
       lines: {
         create: lines.map((l: any) => ({
           inventoryItemId: l.inventoryItemId,

@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { auth } from '@/src/lib/auth';
 import { prisma } from '@/src/lib/prisma';
 import { z } from 'zod';
 import { logAudit } from '@/src/lib/audit';
+import { requireAuth, requireResource, requireRoles } from '@/src/lib/api-auth';
+import { UserRole } from '@prisma/client';
 
 const expenseSchema = z.object({
   categoryId: z.string(),
@@ -14,18 +15,16 @@ const expenseSchema = z.object({
 });
 
 export async function GET(req: NextRequest) {
-  const session = await auth();
-  if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const authResult = await requireResource('expenses');
+  if (authResult instanceof NextResponse) return authResult;
 
   const { searchParams } = new URL(req.url);
-  const month = searchParams.get('month'); // YYYY-MM
+  const month = searchParams.get('month');
 
-  const where: any = {};
+  const where: Record<string, unknown> = {};
   if (month) {
     const [year, m] = month.split('-').map(Number);
-    const start = new Date(year, m - 1, 1);
-    const end = new Date(year, m, 1);
-    where.date = { gte: start, lt: end };
+    where.date = { gte: new Date(year, m - 1, 1), lt: new Date(year, m, 1) };
   }
 
   const [expenses, categories] = await Promise.all([
@@ -41,13 +40,8 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const session = await auth();
-  if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-
-  const role = (session.user as any).role;
-  if (!['OWNER', 'MANAGER', 'ACCOUNTANT'].includes(role)) {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-  }
+  const authResult = await requireResource('expenses');
+  if (authResult instanceof NextResponse) return authResult;
 
   const body = await req.json();
   const data = expenseSchema.parse(body);
@@ -64,7 +58,7 @@ export async function POST(req: NextRequest) {
     include: { category: true },
   });
   void logAudit({
-    userId: session.user.id,
+    userId: authResult.user.id,
     action: 'CREATE',
     entity: 'Expense',
     entityId: expense.id,
@@ -76,10 +70,10 @@ export async function POST(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
-  const session = await auth();
-  if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  const role = (session.user as any).role;
-  if (!['OWNER', 'MANAGER'].includes(role)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  const authResult = await requireAuth();
+  if (authResult instanceof NextResponse) return authResult;
+  const forbidden = requireRoles(authResult.user.role, [UserRole.OWNER, UserRole.MANAGER]);
+  if (forbidden) return forbidden;
 
   const { searchParams } = new URL(req.url);
   const id = searchParams.get('id');

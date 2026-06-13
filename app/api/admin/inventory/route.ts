@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { auth } from '@/src/lib/auth';
 import { prisma } from '@/src/lib/prisma';
 import { z } from 'zod';
+import { UserRole } from '@prisma/client';
+import { requireAuth, requireRoles, applyInventoryDelta } from '@/src/lib/api-auth';
 
 const itemSchema = z.object({
   name: z.string().min(1),
@@ -25,8 +26,10 @@ const txSchema = z.object({
 });
 
 export async function GET(req: NextRequest) {
-  const session = await auth();
-  if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const authResult = await requireAuth();
+  if (authResult instanceof NextResponse) return authResult;
+  const forbidden = requireRoles(authResult.user.role, [UserRole.OWNER, UserRole.MANAGER]);
+  if (forbidden) return forbidden;
 
   const { searchParams } = new URL(req.url);
   const id = searchParams.get('id');
@@ -53,8 +56,9 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const session = await auth();
-  if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const authResult = await requireAuth();
+  if (authResult instanceof NextResponse) return authResult;
+  const session = authResult;
 
   const body = await req.json();
 
@@ -62,39 +66,51 @@ export async function POST(req: NextRequest) {
     typeof body?.itemId === 'string' &&
     ['PURCHASE', 'USAGE', 'ADJUSTMENT', 'WASTE'].includes(body?.type);
 
+  if (isInventoryTx) {
+    const forbidden = requireRoles(session.user.role, [UserRole.OWNER, UserRole.MANAGER]);
+    if (forbidden) return forbidden;
+  } else {
+    const forbidden = requireRoles(session.user.role, [UserRole.OWNER, UserRole.MANAGER]);
+    if (forbidden) return forbidden;
+  }
+
   // Transaction log (distinct from creating a new stock item — no itemId + tx type on new items)
   if (isInventoryTx) {
     const data = txSchema.parse(body);
-    const tx = await prisma.$transaction(async (tx) => {
-      const item = await tx.inventoryItem.findUnique({ where: { id: data.itemId } });
-      if (!item) throw new Error('Item not found');
-
-      const delta = ['PURCHASE', 'ADJUSTMENT'].includes(data.type)
+    try {
+      const delta = data.type === 'ADJUSTMENT'
         ? data.quantity
-        : -Math.abs(data.quantity);
+        : data.type === 'PURCHASE'
+          ? Math.abs(data.quantity)
+          : -Math.abs(data.quantity);
 
-      const totalCost = data.unitCost ? data.quantity * data.unitCost : undefined;
+      const txResult = await prisma.$transaction(async (tx) => {
+        const item = await tx.inventoryItem.findUnique({ where: { id: data.itemId } });
+        if (!item) throw Object.assign(new Error('Item not found'), { status: 404 });
 
-      const [updated, log] = await Promise.all([
-        tx.inventoryItem.update({
-          where: { id: data.itemId },
-          data: { quantity: { increment: delta } },
-        }),
-        tx.inventoryTransaction.create({
+        await applyInventoryDelta(tx, data.itemId, delta);
+
+        const totalCost = data.unitCost ? Math.abs(data.quantity) * data.unitCost : undefined;
+        const log = await tx.inventoryTransaction.create({
           data: {
             itemId: data.itemId,
             type: data.type as any,
-            quantity: data.quantity,
+            quantity: Math.abs(data.quantity),
             unitCost: data.unitCost,
             totalCost,
             notes: data.notes,
             reference: data.reference,
           },
-        }),
-      ]);
-      return { item: updated, transaction: log };
-    });
-    return NextResponse.json(tx);
+        });
+        const updated = await tx.inventoryItem.findUnique({ where: { id: data.itemId } });
+        return { item: updated, transaction: log };
+      });
+      return NextResponse.json(txResult);
+    } catch (err: any) {
+      const status = err?.status ?? 500;
+      if (status !== 500) return NextResponse.json({ error: err.message }, { status });
+      throw err;
+    }
   }
 
   // Create item — OWNER/MANAGER only
@@ -108,13 +124,10 @@ export async function POST(req: NextRequest) {
 }
 
 export async function PATCH(req: NextRequest) {
-  const session = await auth();
-  if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-
-  const role = (session.user as any).role;
-  if (!['OWNER', 'MANAGER'].includes(role)) {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-  }
+  const authResult = await requireAuth();
+  if (authResult instanceof NextResponse) return authResult;
+  const forbidden = requireRoles(authResult.user.role, [UserRole.OWNER, UserRole.MANAGER]);
+  if (forbidden) return forbidden;
 
   const { id, ...updates } = await req.json();
   if (!id) return NextResponse.json({ error: 'Item ID required' }, { status: 400 });

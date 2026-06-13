@@ -5,6 +5,7 @@ import { z, ZodError } from 'zod';
 import { generateOrderNumber } from '@/src/lib/utils';
 import { getTaxRate } from '@/src/lib/settings';
 import { logAudit } from '@/src/lib/audit';
+import { applyInventoryDelta } from '@/src/lib/api-auth';
 
 const orderItemSchema = z.object({
   menuItemId: z.string(),
@@ -157,7 +158,9 @@ export async function POST(req: NextRequest) {
   const isDemo = isItAdmin; // demo orders are excluded from all revenue reporting
 
   // Run order creation + BOM deductions atomically
-  const order = await prisma.$transaction(async (tx) => {
+  let order;
+  try {
+    order = await prisma.$transaction(async (tx) => {
     const created = await tx.order.create({
       data: {
         orderNumber: generateOrderNumber(),
@@ -206,10 +209,7 @@ export async function POST(req: NextRequest) {
 
         for (const line of bom.lines) {
           const deductQty = Number(line.quantity) * item.quantity;
-          await tx.inventoryItem.update({
-            where: { id: line.inventoryItemId },
-            data: { quantity: { decrement: deductQty } },
-          });
+          await applyInventoryDelta(tx, line.inventoryItemId, -deductQty);
           await tx.inventoryTransaction.create({
             data: {
               itemId: line.inventoryItemId,
@@ -225,6 +225,12 @@ export async function POST(req: NextRequest) {
 
     return created;
   });
+  } catch (err: any) {
+    if (err?.status === 409) {
+      return NextResponse.json({ error: err.message }, { status: 409 });
+    }
+    throw err;
+  }
 
   // Audit — fire-and-forget, never blocks the response
   void logAudit({

@@ -1,5 +1,4 @@
 import type { Metadata, Viewport } from 'next';
-import { SessionProvider } from 'next-auth/react';
 
 export const metadata: Metadata = {
   title: 'Jireh POS',
@@ -22,11 +21,11 @@ export const viewport: Viewport = {
 
 export default function PosLayout({ children }: { children: React.ReactNode }) {
   return (
-    <SessionProvider>
+    <>
       <link rel="apple-touch-icon" href="/jireh/logo.jpg" />
       <div className="h-screen bg-[#111311] overflow-hidden">
         {children}
       </div>
-    </SessionProvider>
+    </>
   );
 }

@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { auth } from '@/src/lib/auth';
 import { prisma } from '@/src/lib/prisma';
 import { logAudit } from '@/src/lib/audit';
 import { z } from 'zod';
+import { UserRole } from '@prisma/client';
+import { requireAuth, requireRoles, applyInventoryDelta } from '@/src/lib/api-auth';
 
 const voidSchema = z.object({
   reason: z.string().min(3, 'Reason required (min 3 chars)'),
@@ -11,13 +12,10 @@ const voidSchema = z.object({
 
 // POST /api/admin/orders/[id]/void — void a completed order (OWNER/MANAGER only)
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
-  const session = await auth();
-  if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-
-  const role = (session.user as any).role;
-  if (!['OWNER', 'MANAGER'].includes(role)) {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-  }
+  const authResult = await requireAuth();
+  if (authResult instanceof NextResponse) return authResult;
+  const forbidden = requireRoles(authResult.user.role, [UserRole.OWNER, UserRole.MANAGER]);
+  if (forbidden) return forbidden;
 
   try {
     const body = await req.json();
@@ -30,9 +28,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
     const order = await prisma.order.findUnique({
       where: { id: params.id },
-      include: {
-        items: true,
-      },
+      include: { items: true },
     });
 
     if (!order) return NextResponse.json({ error: 'Order not found' }, { status: 404 });
@@ -43,8 +39,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       return NextResponse.json({ error: 'Cannot void demo orders' }, { status: 400 });
     }
 
+    const shouldRestock = restockInventory && order.status === 'COMPLETED';
+
     await prisma.$transaction(async (tx) => {
-      // Mark order as cancelled
       await tx.order.update({
         where: { id: params.id },
         data: {
@@ -56,8 +53,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         },
       });
 
-      // Re-stock inventory via BOM reversal if requested
-      if (restockInventory) {
+      if (shouldRestock) {
         for (const item of order.items) {
           const bom = await tx.bom.findFirst({
             where: { menuItemId: item.menuItemId, isActive: true },
@@ -67,10 +63,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
           for (const line of bom.lines) {
             const restoreQty = Number(line.quantity) * item.quantity;
-            await tx.inventoryItem.update({
-              where: { id: line.inventoryItemId },
-              data: { quantity: { increment: restoreQty } },
-            });
+            await applyInventoryDelta(tx, line.inventoryItemId, restoreQty);
             await tx.inventoryTransaction.create({
               data: {
                 itemId: line.inventoryItemId,
@@ -86,7 +79,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     });
 
     await logAudit({
-      userId: session.user.id,
+      userId: authResult.user.id,
       action: 'VOID',
       entity: 'Order',
       entityId: order.id,
@@ -94,7 +87,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         orderNumber: order.orderNumber,
         total: Number(order.total),
         reason,
-        restockInventory,
+        restockInventory: shouldRestock,
       },
       req,
     });

@@ -59,11 +59,12 @@ export default withPWA({
         },
       },
       {
-        // Admin settings (receipt config) — stale-while-revalidate
-        urlPattern: /^https?:\/\/[^/]+\/api\/admin\/settings.*/i,
-        handler: 'StaleWhileRevalidate',
+        // POS receipt settings — short network-first cache (cashier-safe endpoint)
+        urlPattern: /^https?:\/\/[^/]+\/api\/pos\/settings.*/i,
+        handler: 'NetworkFirst',
         options: {
-          cacheName: 'admin-settings',
+          cacheName: 'pos-settings',
+          networkTimeoutSeconds: 5,
           expiration: { maxEntries: 5, maxAgeSeconds: 60 * 60 },
           cacheableResponse: { statuses: [0, 200] },
         },
@@ -75,17 +76,6 @@ export default withPWA({
         options: {
           cacheName: 'google-fonts',
           expiration: { maxEntries: 10, maxAgeSeconds: 365 * 24 * 60 * 60 },
-          cacheableResponse: { statuses: [0, 200] },
-        },
-      },
-      {
-        // App pages (POS shell, login) — network-first with offline fallback
-        urlPattern: /^https?:\/\/[^/]+\/(pos|login|admin)(\/.*)?$/i,
-        handler: 'NetworkFirst',
-        options: {
-          cacheName: 'pages',
-          networkTimeoutSeconds: 5,
-          expiration: { maxEntries: 20, maxAgeSeconds: 24 * 60 * 60 },
           cacheableResponse: { statuses: [0, 200] },
         },
       },

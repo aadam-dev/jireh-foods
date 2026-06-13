@@ -18,6 +18,7 @@ export default function OrdersPage() {
   const { data: authSession } = useSession();
   const userRole = (authSession?.user as any)?.role ?? '';
   const canVoid = ['OWNER', 'MANAGER'].includes(userRole);
+  const canUpdateStatus = canVoid;
 
   const [orders, setOrders] = useState<any[]>([]);
   const [total, setTotal] = useState(0);
@@ -235,7 +236,7 @@ export default function OrdersPage() {
             </div>
 
             {/* Status update controls (not for cancelled orders) */}
-            {selected.status !== 'COMPLETED' && selected.status !== 'CANCELLED' && (
+            {canUpdateStatus && selected.status !== 'COMPLETED' && selected.status !== 'CANCELLED' && (
               <div>
                 <p className="text-xs font-semibold text-[#aba8a4] uppercase tracking-wider mb-2">Update Status</p>
                 <div className="flex flex-wrap gap-2">

@@ -1,11 +1,10 @@
 import { NextResponse } from 'next/server';
-import { auth } from '@/src/lib/auth';
 import { prisma } from '@/src/lib/prisma';
+import { requireResource } from '@/src/lib/api-auth';
 
-// Lightweight endpoint: just the count of low-stock items for the sidebar badge
 export async function GET() {
-  const session = await auth();
-  if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const authResult = await requireResource('inventory');
+  if (authResult instanceof NextResponse) return authResult;
 
   try {
     const items = await prisma.inventoryItem.findMany({

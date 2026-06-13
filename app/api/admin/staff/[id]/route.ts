@@ -1,38 +1,66 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { auth } from '@/src/lib/auth';
 import { prisma } from '@/src/lib/prisma';
 import bcrypt from 'bcryptjs';
+import { z } from 'zod';
+import { UserRole } from '@prisma/client';
+import { requireAuth, requireRoles } from '@/src/lib/api-auth';
+import { canAssignRole } from '@/src/lib/permissions';
+
+const staffProfileSchema = z.object({
+  phone: z.string().optional(),
+  hireDate: z.string().optional(),
+  salaryType: z.enum(['MONTHLY', 'DAILY', 'HOURLY']).optional(),
+  salary: z.coerce.number().optional(),
+  bankName: z.string().optional(),
+  bankAccount: z.string().optional(),
+});
+
+const patchUserSchema = z.object({
+  name: z.string().min(1).optional(),
+  email: z.string().email().optional(),
+  role: z.enum(['OWNER', 'MANAGER', 'ACCOUNTANT', 'CASHIER', 'STAFF']).optional(),
+  isActive: z.boolean().optional(),
+  newPassword: z.string().min(6).optional(),
+  staffProfile: staffProfileSchema.optional(),
+});
 
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
-  const session = await auth();
-  if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  const role = (session.user as any).role;
-  if (!['OWNER', 'MANAGER'].includes(role)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  const authResult = await requireAuth();
+  if (authResult instanceof NextResponse) return authResult;
+  const forbidden = requireRoles(authResult.user.role, [UserRole.OWNER, UserRole.MANAGER]);
+  if (forbidden) return forbidden;
 
   const body = await req.json();
-  const { staffProfile, newPassword, ...userFields } = body;
-
-  // MANAGER cannot assign OWNER role — only OWNER can do that
-  if (role === 'MANAGER' && userFields.role === 'OWNER') {
-    return NextResponse.json({ error: 'Managers cannot assign the Owner role' }, { status: 403 });
+  const parsed = patchUserSchema.safeParse(body);
+  if (!parsed.success) {
+    return NextResponse.json({ error: 'Invalid input', details: parsed.error.flatten() }, { status: 400 });
   }
 
-  const updates: any = { ...userFields };
-  if (newPassword) {
-    updates.password = await bcrypt.hash(newPassword, 12);
-    updates.passwordResetRequired = true;
+  const data = parsed.data;
+  if (data.role && !canAssignRole(authResult.user.role, data.role as UserRole)) {
+    return NextResponse.json({ error: 'You cannot assign that role' }, { status: 403 });
+  }
+
+  const userUpdate: Record<string, unknown> = {};
+  if (data.name !== undefined) userUpdate.name = data.name;
+  if (data.email !== undefined) userUpdate.email = data.email.toLowerCase();
+  if (data.role !== undefined) userUpdate.role = data.role;
+  if (data.isActive !== undefined) userUpdate.isActive = data.isActive;
+  if (data.newPassword) {
+    userUpdate.password = await bcrypt.hash(data.newPassword, 12);
+    userUpdate.passwordResetRequired = true;
   }
 
   const user = await prisma.user.update({
     where: { id: params.id },
     data: {
-      ...updates,
-      ...(staffProfile
+      ...userUpdate,
+      ...(data.staffProfile
         ? {
             staffProfile: {
               upsert: {
-                create: staffProfile,
-                update: staffProfile,
+                create: data.staffProfile,
+                update: data.staffProfile,
               },
             },
           }
@@ -45,12 +73,11 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 }
 
 export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
-  const session = await auth();
-  if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  const role = (session.user as any).role;
-  if (role !== 'OWNER') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  const authResult = await requireAuth();
+  if (authResult instanceof NextResponse) return authResult;
+  const forbidden = requireRoles(authResult.user.role, [UserRole.OWNER]);
+  if (forbidden) return forbidden;
 
-  // Soft delete — deactivate instead
   await prisma.user.update({ where: { id: params.id }, data: { isActive: false } });
   return NextResponse.json({ success: true });
 }

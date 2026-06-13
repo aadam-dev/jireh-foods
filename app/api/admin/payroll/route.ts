@@ -1,21 +1,29 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { auth } from '@/src/lib/auth';
 import { prisma } from '@/src/lib/prisma';
 import { z } from 'zod';
+import { UserRole } from '@prisma/client';
+import { requireAuth, requireRoles } from '@/src/lib/api-auth';
 
 const createSchema = z.object({
   userId: z.string(),
   periodStart: z.string(),
   periodEnd: z.string(),
-  baseSalary: z.number(),
-  bonus: z.number().default(0),
-  deductions: z.number().default(0),
+  baseSalary: z.number().min(0),
+  bonus: z.number().min(0).default(0),
+  deductions: z.number().min(0).default(0),
   notes: z.string().optional(),
 });
 
+const patchPayrollSchema = z.object({
+  id: z.string(),
+  status: z.enum(['DRAFT', 'APPROVED', 'PAID']),
+});
+
 export async function GET(req: NextRequest) {
-  const session = await auth();
-  if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const authResult = await requireAuth();
+  if (authResult instanceof NextResponse) return authResult;
+  const forbidden = requireRoles(authResult.user.role, [UserRole.OWNER, UserRole.ACCOUNTANT]);
+  if (forbidden) return forbidden;
 
   const { searchParams } = new URL(req.url);
   const month = searchParams.get('month');
@@ -35,20 +43,34 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const session = await auth();
-  if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  const role = (session.user as any).role;
-  if (!['OWNER', 'ACCOUNTANT'].includes(role)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  const authResult = await requireAuth();
+  if (authResult instanceof NextResponse) return authResult;
+  const forbidden = requireRoles(authResult.user.role, [UserRole.OWNER, UserRole.ACCOUNTANT]);
+  if (forbidden) return forbidden;
+  const session = authResult;
 
   const body = await req.json();
   const data = createSchema.parse(body);
   const netPay = data.baseSalary + data.bonus - data.deductions;
+  if (netPay < 0) {
+    return NextResponse.json({ error: 'Net pay cannot be negative' }, { status: 400 });
+  }
+
+  const periodStart = new Date(data.periodStart);
+  const periodEnd = new Date(data.periodEnd);
+
+  const duplicate = await prisma.payrollRecord.findFirst({
+    where: { userId: data.userId, periodStart, periodEnd },
+  });
+  if (duplicate) {
+    return NextResponse.json({ error: 'Payroll record already exists for this period' }, { status: 409 });
+  }
 
   const record = await prisma.payrollRecord.create({
     data: {
       userId: data.userId,
-      periodStart: new Date(data.periodStart),
-      periodEnd: new Date(data.periodEnd),
+      periodStart,
+      periodEnd,
       baseSalary: data.baseSalary,
       bonus: data.bonus,
       deductions: data.deductions,
@@ -61,12 +83,17 @@ export async function POST(req: NextRequest) {
 }
 
 export async function PATCH(req: NextRequest) {
-  const session = await auth();
-  if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  const role = (session.user as any).role;
-  if (!['OWNER', 'ACCOUNTANT'].includes(role)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  const authResult = await requireAuth();
+  if (authResult instanceof NextResponse) return authResult;
+  const forbidden = requireRoles(authResult.user.role, [UserRole.OWNER, UserRole.ACCOUNTANT]);
+  if (forbidden) return forbidden;
 
-  const { id, status } = await req.json();
+  const parsed = patchPayrollSchema.safeParse(await req.json());
+  if (!parsed.success) {
+    return NextResponse.json({ error: 'Invalid input', details: parsed.error.flatten() }, { status: 400 });
+  }
+  const { id, status } = parsed.data;
+
   const record = await prisma.payrollRecord.update({
     where: { id },
     data: {

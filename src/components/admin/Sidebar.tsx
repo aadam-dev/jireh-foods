@@ -31,7 +31,7 @@ const NAV_SECTIONS: NavSection[] = [
     label: 'Operations',
     items: [
       { href: '/admin', label: 'Dashboard', icon: <LayoutDashboard size={17} />, roles: ['OWNER', 'MANAGER', 'ACCOUNTANT'] },
-      { href: '/admin/orders', label: 'Orders', icon: <ShoppingBag size={17} />, roles: ['OWNER', 'MANAGER', 'CASHIER', 'ACCOUNTANT'] },
+      { href: '/admin/orders', label: 'Orders', icon: <ShoppingBag size={17} />, roles: ['OWNER', 'MANAGER', 'ACCOUNTANT'] },
       { href: '/admin/menu', label: 'Menu', icon: <UtensilsCrossed size={17} />, roles: ['OWNER', 'MANAGER'] },
     ],
   },

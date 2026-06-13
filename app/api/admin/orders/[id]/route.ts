@@ -8,7 +8,7 @@ const ALLOWED_PATCH_ROLES = ['OWNER', 'MANAGER'];
 
 // Strict field whitelist — financial fields (total, subtotal, items, etc.) are immutable via this endpoint
 const patchOrderSchema = z.object({
-  status: z.enum(['PENDING', 'COMPLETED', 'CANCELLED']).optional(),
+  status: z.enum(['PENDING', 'PREPARING', 'READY', 'COMPLETED', 'CANCELLED']).optional(),
   paymentStatus: z.enum(['PENDING', 'PAID', 'FAILED']).optional(),
   notes: z.string().optional(),
 });

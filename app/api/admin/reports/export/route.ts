@@ -4,7 +4,7 @@ import { prisma } from '@/src/lib/prisma';
 import { startOfMonth, endOfMonth, eachDayOfInterval, format } from 'date-fns';
 import ExcelJS from 'exceljs';
 
-const ALLOWED_ROLES = ['OWNER', 'MANAGER', 'ACCOUNTANT'];
+import { requireResource } from '@/src/lib/api-auth';
 
 const PAYMENT_LABELS: Record<string, string> = {
   CASH: 'Cash', MOMO: 'Mobile Money', BOLT_FOOD: 'Bolt Food',
@@ -143,7 +143,7 @@ function buildCSV(data: Awaited<ReturnType<typeof fetchReportData>>) {
     row('── PAYROLL ──');
     row('Staff', 'Gross Pay (GH₵)', 'Deductions (GH₵)', 'Net Pay (GH₵)', 'Status');
     for (const p of payroll) {
-      row((p as any).user?.name ?? '—', Number((p as any).grossPay ?? 0).toFixed(2),
+      row((p as any).user?.name ?? '—', (Number(p.baseSalary) + Number(p.bonus)).toFixed(2),
         Number((p as any).deductions ?? 0).toFixed(2), Number(p.netPay).toFixed(2), p.status);
     }
     row('');
@@ -240,7 +240,7 @@ async function buildXLSX(data: Awaited<ReturnType<typeof fetchReportData>>) {
         (p as any).user?.name ?? '—',
         (p as any).periodStart ? format(new Date((p as any).periodStart), 'dd MMM yyyy') : '',
         (p as any).periodEnd ? format(new Date((p as any).periodEnd), 'dd MMM yyyy') : '',
-        Number((p as any).grossPay ?? 0),
+        Number(p.baseSalary) + Number(p.bonus),
         Number((p as any).deductions ?? 0),
         Number(p.netPay), p.status,
       ]),
@@ -268,11 +268,8 @@ async function buildXLSX(data: Awaited<ReturnType<typeof fetchReportData>>) {
 
 // ── Route handler ─────────────────────────────────────────────────────────────
 export async function GET(req: NextRequest) {
-  const session = await auth();
-  if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-
-  const role = (session.user as any).role;
-  if (!ALLOWED_ROLES.includes(role)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  const authResult = await requireResource('reports');
+  if (authResult instanceof NextResponse) return authResult;
 
   const { searchParams } = new URL(req.url);
   const exportFormat = searchParams.get('format') ?? 'csv';

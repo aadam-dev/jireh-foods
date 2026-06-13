@@ -1,18 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { auth } from '@/src/lib/auth';
 import { prisma } from '@/src/lib/prisma';
+import { requireResource } from '@/src/lib/api-auth';
 import { startOfMonth, endOfMonth, eachDayOfInterval, format } from 'date-fns';
 
-const ALLOWED_ROLES = ['OWNER', 'MANAGER', 'ACCOUNTANT'];
-
 export async function GET(req: NextRequest) {
-  const session = await auth();
-  if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-
-  const role = (session.user as any).role;
-  if (!ALLOWED_ROLES.includes(role)) {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-  }
+  const authResult = await requireResource('reports');
+  if (authResult instanceof NextResponse) return authResult;
 
   const { searchParams } = new URL(req.url);
   const month = searchParams.get('month') || format(new Date(), 'yyyy-MM');
@@ -22,7 +15,7 @@ export async function GET(req: NextRequest) {
 
   const [orders, expenses, payroll, sessions] = await Promise.all([
     prisma.order.findMany({
-      where: { createdAt: { gte: start, lte: end }, status: { not: 'CANCELLED' }, isDemo: false },
+      where: { createdAt: { gte: start, lte: end }, status: 'COMPLETED', isDemo: false },
       include: { items: { include: { menuItem: { select: { costPrice: true, name: true } } } } },
     }),
     prisma.expense.findMany({
@@ -81,10 +74,16 @@ export async function GET(req: NextRequest) {
     };
   });
 
-  // Payment method breakdown
+  // Payment method breakdown (includes SPLIT leg allocation)
   const paymentBreakdown = orders.reduce((acc: Record<string, number>, o) => {
-    const method = o.paymentMethod;
-    acc[method] = (acc[method] || 0) + Number(o.total);
+    if (o.paymentMethod === 'SPLIT' && Array.isArray(o.splitPayments)) {
+      for (const leg of o.splitPayments as { method: string; amount: number }[]) {
+        acc[leg.method] = (acc[leg.method] || 0) + Number(leg.amount);
+      }
+    } else {
+      const method = o.paymentMethod;
+      acc[method] = (acc[method] || 0) + Number(o.total);
+    }
     return acc;
   }, {});
 
@@ -95,7 +94,7 @@ export async function GET(req: NextRequest) {
       const name = item.menuItem?.name ?? 'Unknown';
       if (!itemMap[name]) itemMap[name] = { name, qty: 0, revenue: 0 };
       itemMap[name].qty += item.quantity;
-      itemMap[name].revenue += item.quantity * Number((item as any).unitPrice ?? 0);
+      itemMap[name].revenue += item.quantity * Number(item.price ?? 0);
     }
   }
   const topItems = Object.values(itemMap)

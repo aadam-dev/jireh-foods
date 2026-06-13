@@ -63,6 +63,9 @@ export default auth(async (req: NextRequest & { auth?: any }) => {
   const isPosOnlyRole = role === 'CASHIER' || role === 'STAFF';
 
   if ((isAdminRoute || isPosRoute) && !isLoggedIn) {
+    if (pathname.startsWith('/api/')) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
     const loginUrl = new URL('/login', req.url);
     loginUrl.searchParams.set('callbackUrl', pathname);
     return Response.redirect(loginUrl);
@@ -70,6 +73,9 @@ export default auth(async (req: NextRequest & { auth?: any }) => {
 
   // CASHIER / STAFF cannot access admin routes
   if (isAdminRoute && isLoggedIn && isPosOnlyRole) {
+    if (pathname.startsWith('/api/')) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
     return Response.redirect(new URL('/pos', req.url));
   }
 

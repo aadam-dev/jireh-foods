@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useCallback, useRef, type ReactNode } from 'react';
 import { useSession, signOut } from 'next-auth/react';
 import {
   Search, ShoppingCart, Trash2, Plus, Minus, X, LogOut,
@@ -12,12 +12,14 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { formatCurrency, formatTime } from '@/src/lib/utils';
 import { enqueueOrder, getPendingOrders, syncPendingOrders } from '@/src/lib/offlineQueue';
+import { classifyRegisterSession } from '@/src/lib/session-utils';
 
 /* ─── Types ─────────────────────────────────────────────────────────── */
 interface CartItem { menuItemId: string; name: string; price: number; quantity: number; notes?: string }
 interface MenuCategory { id: string; name: string; items: { id: string; name: string; price: number; description?: string; isPopular: boolean; image?: string | null }[] }
-interface PosSession { id: string; openedByUser: { name: string }; openedAt: string; openingFloat: number; status: string }
+interface PosSession { id: string; openedByUser: { id?: string; name: string }; openedAt: string; openingFloat: number; status: string }
 interface SessionStats { revenue: number; cashRevenue: number; momoRevenue: number; boltRevenue: number }
+type RegisterGate = 'checking' | 'continue' | 'stale' | 'open_new' | 'active';
 
 const PAYMENT_METHODS = [
   { id: 'CASH', label: 'Cash', icon: Banknote },
@@ -35,7 +37,9 @@ const DELIVERY_TYPES = [
   { id: 'DELIVERY', label: 'Delivery' },
 ];
 
-const CART_KEY = 'jireh_pos_cart';
+function cartStorageKey(userId?: string) {
+  return userId ? `jireh_pos_cart_${userId}` : 'jireh_pos_cart_pending';
+}
 
 /* ─── Numpad Component ───────────────────────────────────────────────── */
 function Numpad({ value, onChange }: { value: string; onChange: (v: string) => void }) {
@@ -236,8 +240,11 @@ export default function POSPage() {
 
   // Session
   const [posSession, setPosSession] = useState<PosSession | null>(null);
+  const [pendingSession, setPendingSession] = useState<PosSession | null>(null);
+  const [registerGate, setRegisterGate] = useState<RegisterGate>('checking');
   const [sessionChecked, setSessionChecked] = useState(false);
   const [sessionStats, setSessionStats] = useState<SessionStats>({ revenue: 0, cashRevenue: 0, momoRevenue: 0, boltRevenue: 0 });
+  const checkoutClientRef = useRef<string | null>(null);
   const [openingFloatStr, setOpeningFloatStr] = useState('0');
   const [closingCashStr, setClosingCashStr] = useState('0');
   const [closingMomoStr, setClosingMomoStr] = useState('0');
@@ -254,7 +261,10 @@ export default function POSPage() {
   // Offline / sync state
   const [isOnline, setIsOnline] = useState(true);
   const [pendingCount, setPendingCount] = useState(0);
+  const [failedSyncCount, setFailedSyncCount] = useState(0);
   const [syncing, setSyncing] = useState(false);
+  const userId = user?.id as string | undefined;
+  const cartKey = cartStorageKey(userId);
 
   useEffect(() => { const t = setInterval(() => setCurrentTime(new Date()), 1000); return () => clearInterval(t); }, []);
 
@@ -272,6 +282,15 @@ export default function POSPage() {
     getPendingOrders().then(q => setPendingCount(q.length)).catch(() => {});
   }, []);
 
+  const refreshQueueCounts = useCallback(async () => {
+    const [pending, failedMod] = await Promise.all([
+      getPendingOrders().catch(() => []),
+      import('@/src/lib/offlineQueue').then(m => m.getFailedOrders().catch(() => [])),
+    ]);
+    setPendingCount(pending.length);
+    setFailedSyncCount(failedMod.length);
+  }, []);
+
   // ── Auto-sync when connection is restored ─────────────────────────────────
   useEffect(() => {
     if (!isOnline) return;
@@ -281,21 +300,24 @@ export default function POSPage() {
       if (!alive || pending.length === 0) return;
       setSyncing(true);
       try {
-        const { synced } = await syncPendingOrders();
+        const result = await syncPendingOrders();
         if (!alive) return;
-        const remaining = await getPendingOrders().catch(() => []);
-        setPendingCount(remaining.length);
-        if (synced > 0) { fetchOrders(); fetchSession(); }
+        await refreshQueueCounts();
+        if (result.authFailed) {
+          alert('Session expired — please sign in again to sync offline orders.');
+        }
+        if (result.synced > 0) { fetchOrders(); fetchSession(); }
       } finally { if (alive) setSyncing(false); }
     })();
     return () => { alive = false; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOnline]);
 
-  // Hydrate cart from localStorage on first render (client-only)
+  // Hydrate cart from localStorage once we know the signed-in user
   useEffect(() => {
+    if (!userId) return;
     try {
-      const saved = localStorage.getItem(CART_KEY);
+      const saved = localStorage.getItem(cartKey);
       if (saved) {
         const p = JSON.parse(saved);
         if (Array.isArray(p.cart) && p.cart.length > 0) setCart(p.cart);
@@ -304,41 +326,68 @@ export default function POSPage() {
         if (p.customerPhone) setCustomerPhone(p.customerPhone);
         if (p.orderNotes) setOrderNotes(p.orderNotes);
         if (typeof p.discountAmount === 'number') setDiscountAmount(p.discountAmount);
+      } else {
+        setCart([]);
       }
     } catch {}
-  }, []);
+  }, [userId, cartKey]);
 
-  // Persist cart to localStorage whenever it changes
+  // Persist cart scoped to the current user
   useEffect(() => {
+    if (!userId) return;
     try {
       if (cart.length > 0 || customerName || customerPhone || orderNotes || discountAmount) {
-        localStorage.setItem(CART_KEY, JSON.stringify({ cart, deliveryType, customerName, customerPhone, orderNotes, discountAmount }));
+        localStorage.setItem(cartKey, JSON.stringify({ cart, deliveryType, customerName, customerPhone, orderNotes, discountAmount }));
       } else {
-        localStorage.removeItem(CART_KEY);
+        localStorage.removeItem(cartKey);
       }
     } catch {}
-  }, [cart, deliveryType, customerName, customerPhone, orderNotes, discountAmount]);
+  }, [cart, deliveryType, customerName, customerPhone, orderNotes, discountAmount, userId, cartKey]);
 
   const fetchMenu = async () => {
     const res = await fetch('/api/pos/menu');
+    if (!res.ok) return;
     const data = await res.json();
-    setCategories(data);
-    if (data.length > 0) setActiveCat(data[0].id);
+    if (Array.isArray(data)) {
+      setCategories(data);
+      if (data.length > 0) setActiveCat(data[0].id);
+    }
   };
 
-  const fetchSession = async () => {
+  const fetchSession = async (opts?: { activate?: boolean }) => {
     const res = await fetch('/api/pos/sessions');
     if (res.ok) {
       const data = await res.json();
-      setPosSession(data.session);
       setSessionStats({
         revenue: data.revenue,
         cashRevenue: data.cashRevenue,
         momoRevenue: data.momoRevenue ?? 0,
         boltRevenue: data.boltRevenue ?? 0,
       });
+      if (data.session) {
+        setPendingSession(data.session);
+        const stale = data.isStale ?? classifyRegisterSession(data.session.openedAt) === 'stale';
+        if (opts?.activate) {
+          setPosSession(data.session);
+          setRegisterGate('active');
+        } else {
+          setPosSession(null);
+          setRegisterGate(stale ? 'stale' : 'continue');
+        }
+      } else {
+        setPendingSession(null);
+        setPosSession(null);
+        setRegisterGate('open_new');
+      }
     }
     setSessionChecked(true);
+  };
+
+  const activateRegister = () => {
+    if (!pendingSession) return;
+    setPosSession(pendingSession);
+    setRegisterGate('active');
+    setView('register');
   };
 
   const fetchOrders = async () => {
@@ -347,15 +396,14 @@ export default function POSPage() {
     if (res.ok) setTodayOrders(await res.json());
   };
 
-  // Load menu and receipt settings immediately — no auth needed
+  // Load menu and receipt settings after auth resolves
   useEffect(() => {
+    if (authStatus !== 'authenticated') return;
     fetchMenu();
-    fetch('/api/admin/settings')
+    fetch('/api/pos/settings')
       .then(r => r.ok ? r.json() : null)
       .then(data => {
         if (!data) return;
-        // Use `||` (not `??`) so an empty-string setting falls back to the default
-        // instead of printing a blank value on the receipt.
         setReceiptSettings({
           businessName: data.business_name || 'Jireh Natural Foods',
           businessPhone: data.business_phone || '055 113 3481',
@@ -365,7 +413,7 @@ export default function POSPage() {
         });
       })
       .catch(() => {});
-  }, []);
+  }, [authStatus]);
 
   // Session check — reactive on auth resolution.
   // IT admin gets an instant fast-path (demo mode, no shift ever needed).
@@ -373,15 +421,18 @@ export default function POSPage() {
   useEffect(() => {
     if (authStatus !== 'authenticated') return;
     if (isItAdmin) {
-      setSessionChecked(true); // no DB call — demo mode bypasses shift gate
+      setSessionChecked(true);
+      setRegisterGate('active');
     } else {
       fetchSession();
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authStatus, isItAdmin]);
-  // Fetch orders only after session check is done (so we have the correct sessionId).
-  // Intentionally NOT in the same effect as fetchSession to avoid a double-fetch.
-  useEffect(() => { if (sessionChecked && authSession?.user) fetchOrders(); }, [sessionChecked]);
+
+  useEffect(() => {
+    if (sessionChecked && authSession?.user && registerGate === 'active') fetchOrders();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionChecked, registerGate, posSession?.id]);
 
   // Cart helpers
   const addToCart = useCallback((item: MenuCategory['items'][0]) => {
@@ -399,7 +450,8 @@ export default function POSPage() {
     setDiscountAmount(0); setTenderedStr('0'); setMomoAmountStr('0'); setPaymentRef('');
     setIsSplit(false); setSplitCashStr('0'); setSplitMomoStr('0'); setSplitBoltStr('0');
     setSplitMomoRef(''); setSplitBoltRef('');
-    try { localStorage.removeItem(CART_KEY); } catch {}
+    try { localStorage.removeItem(cartKey); } catch {}
+    checkoutClientRef.current = null;
   };
 
   const subtotal = cart.reduce((s, c) => s + c.price * c.quantity, 0);
@@ -414,6 +466,11 @@ export default function POSPage() {
   const splitSum  = splitCash + splitMomo + splitBolt;
   const splitOk   = isSplit && Math.abs(splitSum - total) < 0.01 && splitSum > 0;
 
+  const goToPayment = () => {
+    checkoutClientRef.current = null;
+    setView('payment');
+  };
+
   const canCharge = cart.length > 0 && (
     isSplit
       ? splitOk
@@ -422,10 +479,14 @@ export default function POSPage() {
   );
 
   const placeOrder = async () => {
-    if (cart.length === 0) return;
+    if (cart.length === 0 || placing) return;
     setPlacing(true);
 
-    // Build split legs (only include non-zero legs)
+    if (!checkoutClientRef.current) {
+      checkoutClientRef.current = globalThis.crypto?.randomUUID?.()
+        ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    }
+
     const splitLegs = isSplit ? [
       splitCash > 0 ? { method: 'CASH',      amount: splitCash } : null,
       splitMomo > 0 ? { method: 'MOMO',      amount: splitMomo, ref: splitMomoRef || undefined } : null,
@@ -433,9 +494,7 @@ export default function POSPage() {
     ].filter(Boolean) : null;
 
     const orderPayload = {
-      // Idempotency key generated once per attempt; reused if this same payload
-      // is queued offline and re-synced later, so the server never duplicates it.
-      clientRef: (globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`),
+      clientRef: checkoutClientRef.current,
       items: cart,
       paymentMethod: isSplit ? 'SPLIT' : paymentMethod,
       deliveryType,
@@ -474,7 +533,10 @@ export default function POSPage() {
     } catch {
       // ── Offline fallback — save to IndexedDB queue, never lose the order ───
       try {
-        await enqueueOrder(orderPayload);
+        await enqueueOrder(orderPayload, {
+          createdByUserId: userId,
+          sessionId: posSession?.id,
+        });
         const remaining = await getPendingOrders();
         setPendingCount(remaining.length);
         // Show a receipt-like confirmation screen with offline flag
@@ -499,25 +561,33 @@ export default function POSPage() {
   };
 
   // Session actions
-  const openSession = async () => {
+  const openSession = async (forceCloseStale = false) => {
     setSessionLoading(true);
     try {
       const res = await fetch('/api/pos/sessions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ openingFloat: parseFloat(openingFloatStr) }),
+        body: JSON.stringify({
+          openingFloat: parseFloat(openingFloatStr),
+          forceCloseStale,
+        }),
       });
-      if (res.ok) { await fetchSession(); setView('register'); }
-      else { const e = await res.json(); alert(e.error); }
+      if (res.ok) {
+        await fetchSession({ activate: true });
+        setView('register');
+      } else {
+        const e = await res.json();
+        alert(e.error || 'Could not open shift');
+      }
     } finally { setSessionLoading(false); }
   };
 
   const closeSession = async (skipConfirm = false) => {
-    if (!posSession) return;
+    const active = posSession ?? pendingSession;
+    if (!active) return;
 
-    // Check for discrepancies before closing (unless already confirmed)
     if (!skipConfirm) {
-      const expectedCash = Number(posSession.openingFloat) + sessionStats.cashRevenue;
+      const expectedCash = Number(active.openingFloat) + sessionStats.cashRevenue;
       const cashDisc  = (parseFloat(closingCashStr) || 0) - expectedCash;
       const momoDisc  = (parseFloat(closingMomoStr) || 0) - sessionStats.momoRevenue;
       const boltDisc  = (parseFloat(closingBoltStr) || 0) - sessionStats.boltRevenue;
@@ -540,7 +610,7 @@ export default function POSPage() {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          sessionId: posSession.id,
+          sessionId: active.id,
           closingCash: parseFloat(closingCashStr) || 0,
           closingMomo: parseFloat(closingMomoStr) || 0,
           closingBolt: parseFloat(closingBoltStr) || 0,
@@ -550,6 +620,8 @@ export default function POSPage() {
         const data = await res.json();
         setClosingSummary(data.summary);
         setPosSession(null);
+        setPendingSession(null);
+        setRegisterGate('open_new');
         setSessionStats({ revenue: 0, cashRevenue: 0, momoRevenue: 0, boltRevenue: 0 });
       }
     } finally { setSessionLoading(false); }
@@ -708,11 +780,7 @@ export default function POSPage() {
     );
   }
 
-  /* ─── Auth gate only — show UI as soon as we know who the user is ── */
-  // We no longer block on sessionChecked here. Once auth is resolved, we render
-  // the shift-gate or register immediately; the session fetch updates the view
-  // in the background (< 400 ms). This eliminates the double-waterfall delay
-  // when navigating from Admin → POS.
+  /* ─── Auth gate ──────────────────────────────────────────────────── */
   if (authStatus !== 'authenticated') {
     return (
       <div className="h-screen bg-[#111311] flex items-center justify-center">
@@ -724,54 +792,121 @@ export default function POSPage() {
     );
   }
 
-  // At this point authStatus === 'authenticated', so user is guaranteed to be set.
-  // ALL authenticated users (Owner, Manager, Cashier, Accountant) must open a shift
-  // before taking orders — this is mandatory for accounting accuracy.
-  // EXCEPTION: IT admin (it@jireh.com) runs in demo mode only — no shift, no accounting impact.
   const isAdminRole = ['OWNER', 'MANAGER', 'ACCOUNTANT'].includes(user?.role ?? '');
+  const canManageStale = ['OWNER', 'MANAGER'].includes(user?.role ?? '');
 
-  if (!posSession && view !== 'session' && !isItAdmin) {
-    return (
-      <div className="h-screen bg-[#111311] flex flex-col overflow-hidden">
-        <header className="shrink-0 flex items-center justify-between px-4 py-3 bg-[#0a0b0a] border-b border-[#2b2f2b]">
-          <div className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded-lg overflow-hidden border border-[#349f2d]/40 bg-white flex-shrink-0">
-              <Image src="/jireh/logo.jpg" alt="Jireh Natural Foods" width={28} height={28} className="object-contain w-full h-full" />
-            </div>
-            <span className="text-sm font-semibold text-[#f4efeb]">Jireh POS</span>
+  const registerGateShell = (children: ReactNode) => (
+    <div className="h-screen bg-[#111311] flex flex-col overflow-hidden">
+      <header className="shrink-0 flex items-center justify-between px-4 py-3 bg-[#0a0b0a] border-b border-[#2b2f2b]">
+        <div className="flex items-center gap-2">
+          <div className="w-7 h-7 rounded-lg overflow-hidden border border-[#349f2d]/40 bg-white flex-shrink-0">
+            <Image src="/jireh/logo.jpg" alt="Jireh Natural Foods" width={28} height={28} className="object-contain w-full h-full" />
           </div>
-          <div className="flex items-center gap-1.5">
-            {isAdminRole && (
-              <Link href="/admin" className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-medium text-[#aba8a4] border border-[#2b2f2b] hover:border-[#404540] hover:text-[#f4efeb] transition-all">
-                <LayoutDashboard size={12}/> Admin Panel
-              </Link>
-            )}
-            <button onClick={() => signOut({ callbackUrl: '/login' })} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs text-[#aba8a4] border border-[#2b2f2b] hover:text-red-400 hover:border-red-500/40 transition-all">
-              <LogOut size={12}/>
-            </button>
-          </div>
-        </header>
-        {/* Every authenticated user opens their own shift — no "ask manager" gate */}
-        <div className="flex-1 flex items-center justify-center p-6">
-          <div className="w-full max-w-sm bg-[#191c19] border border-[#2b2f2b] rounded-3xl p-6 space-y-5">
-            <div className="text-center">
-              <div className="w-14 h-14 rounded-2xl bg-[#349f2d]/10 border border-[#349f2d]/30 flex items-center justify-center mx-auto mb-3">
-                <Lock size={24} className="text-[#5ecf4f]"/>
-              </div>
-              <h2 className="text-lg font-bold text-[#f4efeb] font-serif">Open Today's Shift</h2>
-              <p className="text-xs text-[#aba8a4] mt-1">Enter the cash float in the drawer to begin. Required for accounting.</p>
-            </div>
-            <div>
-              <p className="text-xs text-[#aba8a4] mb-2">Opening Cash Float (GH₵)</p>
-              <p className="text-2xl font-bold text-[#5ecf4f] font-mono text-center mb-3">{formatCurrency(parseFloat(openingFloatStr) || 0)}</p>
-              <Numpad value={openingFloatStr} onChange={setOpeningFloatStr}/>
-            </div>
-            <button onClick={openSession} disabled={sessionLoading || !sessionChecked}
-              className="w-full bg-[#349f2d] hover:bg-[#287e22] disabled:opacity-40 text-white rounded-2xl py-3.5 font-bold text-sm transition-all active:scale-[0.98] shadow-[0_0_20px_rgba(52,159,45,0.3)]">
-              {!sessionChecked ? 'Checking shift…' : sessionLoading ? 'Opening…' : 'Open Shift & Start Selling'}
-            </button>
-          </div>
+          <span className="text-sm font-semibold text-[#f4efeb]">Jireh POS</span>
         </div>
+        <div className="flex items-center gap-1.5">
+          {isAdminRole && (
+            <Link href="/admin" className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-medium text-[#aba8a4] border border-[#2b2f2b] hover:border-[#404540] hover:text-[#f4efeb] transition-all">
+              <LayoutDashboard size={12}/> Admin Panel
+            </Link>
+          )}
+          <button onClick={() => signOut({ callbackUrl: '/login' })} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs text-[#aba8a4] border border-[#2b2f2b] hover:text-red-400 hover:border-red-500/40 transition-all">
+            <LogOut size={12}/>
+          </button>
+        </div>
+      </header>
+      <div className="flex-1 flex items-center justify-center p-6">{children}</div>
+    </div>
+  );
+
+  if (!isItAdmin && registerGate !== 'active' && view !== 'session') {
+    if (registerGate === 'checking' || !sessionChecked) {
+      return registerGateShell(
+        <div className="text-center">
+          <div className="w-10 h-10 rounded-full border-2 border-[#349f2d] border-t-transparent animate-spin mx-auto mb-3"/>
+          <p className="text-sm text-[#aba8a4]">Checking register…</p>
+        </div>
+      );
+    }
+
+    if (registerGate === 'continue' && pendingSession) {
+      return registerGateShell(
+        <div className="w-full max-w-sm bg-[#191c19] border border-[#2b2f2b] rounded-3xl p-6 space-y-5">
+          <div className="text-center">
+            <div className="w-14 h-14 rounded-2xl bg-[#349f2d]/10 border border-[#349f2d]/30 flex items-center justify-center mx-auto mb-3">
+              <Unlock size={24} className="text-[#5ecf4f]"/>
+            </div>
+            <h2 className="text-lg font-bold text-[#f4efeb] font-serif">Register Already Open</h2>
+            <p className="text-xs text-[#aba8a4] mt-2">
+              Opened by <strong className="text-[#f4efeb]">{pendingSession.openedByUser?.name}</strong>
+              {' '}since {new Date(pendingSession.openedAt).toLocaleString('en-GH')}
+            </p>
+            <p className="text-xs text-[#aba8a4] mt-1">{sessionStats.revenue > 0 ? `${formatCurrency(sessionStats.revenue)} in sales so far` : 'No sales recorded yet'}</p>
+          </div>
+          <button onClick={activateRegister}
+            className="w-full bg-[#349f2d] hover:bg-[#287e22] text-white rounded-2xl py-3.5 font-bold text-sm transition-all active:scale-[0.98]">
+            Continue Selling
+          </button>
+          <button onClick={() => setView('session')}
+            className="w-full bg-[#191c19] border border-[#2b2f2b] text-[#aba8a4] rounded-2xl py-3 text-sm hover:text-[#f4efeb] transition-colors">
+            View Shift Details
+          </button>
+        </div>
+      );
+    }
+
+    if (registerGate === 'stale' && pendingSession) {
+      return registerGateShell(
+        <div className="w-full max-w-sm bg-[#191c19] border border-yellow-500/30 rounded-3xl p-6 space-y-5">
+          <div className="text-center">
+            <div className="w-14 h-14 rounded-2xl bg-yellow-400/10 border border-yellow-400/30 flex items-center justify-center mx-auto mb-3">
+              <AlertCircle size={24} className="text-yellow-400"/>
+            </div>
+            <h2 className="text-lg font-bold text-[#f4efeb] font-serif">Stale Shift Needs Review</h2>
+            <p className="text-xs text-yellow-300 mt-2">
+              Shift opened {new Date(pendingSession.openedAt).toLocaleString('en-GH')} by {pendingSession.openedByUser?.name} was never closed.
+            </p>
+          </div>
+          <button onClick={activateRegister}
+            className="w-full bg-[#349f2d] hover:bg-[#287e22] text-white rounded-2xl py-3.5 font-bold text-sm transition-all">
+            Continue on Existing Shift
+          </button>
+          {canManageStale ? (
+            <>
+              <button onClick={() => setView('session')}
+                className="w-full bg-[#191c19] border border-[#2b2f2b] text-[#f4efeb] rounded-2xl py-3 text-sm">
+                Close Stale Shift
+              </button>
+              <button onClick={() => openSession(true)} disabled={sessionLoading}
+                className="w-full bg-yellow-500/10 border border-yellow-500/30 text-yellow-300 rounded-2xl py-3 text-sm disabled:opacity-40">
+                {sessionLoading ? 'Opening…' : 'Close Stale & Open New Shift'}
+              </button>
+            </>
+          ) : (
+            <p className="text-xs text-center text-[#aba8a4]">Ask a manager to close this shift before opening a new one.</p>
+          )}
+        </div>
+      );
+    }
+
+    return registerGateShell(
+      <div className="w-full max-w-sm bg-[#191c19] border border-[#2b2f2b] rounded-3xl p-6 space-y-5">
+        <div className="text-center">
+          <div className="w-14 h-14 rounded-2xl bg-[#349f2d]/10 border border-[#349f2d]/30 flex items-center justify-center mx-auto mb-3">
+            <Lock size={24} className="text-[#5ecf4f]"/>
+          </div>
+          <h2 className="text-lg font-bold text-[#f4efeb] font-serif">Open Today&apos;s Shift</h2>
+          <p className="text-xs text-[#aba8a4] mt-1">Enter the cash float in the drawer to begin. Required for accounting.</p>
+        </div>
+        <div>
+          <p className="text-xs text-[#aba8a4] mb-2">Opening Cash Float (GH₵)</p>
+          <p className="text-2xl font-bold text-[#5ecf4f] font-mono text-center mb-3">{formatCurrency(parseFloat(openingFloatStr) || 0)}</p>
+          <Numpad value={openingFloatStr} onChange={setOpeningFloatStr}/>
+        </div>
+        <button onClick={() => openSession()} disabled={sessionLoading}
+          className="w-full bg-[#349f2d] hover:bg-[#287e22] disabled:opacity-40 text-white rounded-2xl py-3.5 font-bold text-sm transition-all active:scale-[0.98] shadow-[0_0_20px_rgba(52,159,45,0.3)]">
+          {sessionLoading ? 'Opening…' : 'Open Shift & Start Selling'}
+        </button>
       </div>
     );
   }
@@ -971,6 +1106,7 @@ export default function POSPage() {
 
   /* ─── Session management view ──────────────────────────────────────── */
   if (view === 'session') {
+    const shiftSession = posSession ?? pendingSession;
     return (
       <div className="h-screen bg-[#111311] flex flex-col overflow-hidden">
         <header className="shrink-0 flex items-center gap-3 px-4 py-3 bg-[#0a0b0a] border-b border-[#2b2f2b]">
@@ -980,13 +1116,13 @@ export default function POSPage() {
           <span className="text-sm font-semibold text-[#f4efeb]">Shift / Session</span>
         </header>
         <div className="flex-1 overflow-y-auto p-4 max-w-md mx-auto w-full space-y-4">
-          {posSession ? (
+          {shiftSession ? (
             /* Close session */
             <div className="space-y-4">
               <div className="bg-[#191c19] border border-[#349f2d]/30 rounded-2xl p-4 space-y-2">
                 <div className="flex items-center gap-2 text-[#5ecf4f] mb-1"><Unlock size={16}/><span className="font-semibold text-sm">Session Open</span></div>
-                <div className="text-xs text-[#aba8a4]">Opened by <strong className="text-[#f4efeb]">{posSession.openedByUser?.name}</strong></div>
-                <div className="text-xs text-[#aba8a4]">Since {new Date(posSession.openedAt).toLocaleString('en-GH')}</div>
+                <div className="text-xs text-[#aba8a4]">Opened by <strong className="text-[#f4efeb]">{shiftSession.openedByUser?.name}</strong></div>
+                <div className="text-xs text-[#aba8a4]">Since {new Date(shiftSession.openedAt).toLocaleString('en-GH')}</div>
                 <div className="grid grid-cols-2 gap-2 mt-3">
                   <div className="bg-[#111311] rounded-xl p-3 text-center">
                     <p className="text-xs text-[#aba8a4]">Session Revenue</p>
@@ -1000,7 +1136,7 @@ export default function POSPage() {
               </div>
               {/* Shift reconciliation — one section per payment method */}
               {(() => {
-                const expectedCash = Number(posSession.openingFloat) + sessionStats.cashRevenue;
+                const expectedCash = Number(shiftSession.openingFloat) + sessionStats.cashRevenue;
                 const cashDisc = (parseFloat(closingCashStr) || 0) - expectedCash;
                 const momoDisc = (parseFloat(closingMomoStr) || 0) - sessionStats.momoRevenue;
                 const boltDisc = (parseFloat(closingBoltStr) || 0) - sessionStats.boltRevenue;
@@ -1021,7 +1157,7 @@ export default function POSPage() {
                         <p className="text-sm font-semibold text-[#f4efeb]">💵 Cash Count</p>
                         <span className={`text-xs font-bold ${discColor(cashDisc)}`}>{discLabel(cashDisc)}</span>
                       </div>
-                      <p className="text-xs text-[#aba8a4]">Expected: {formatCurrency(expectedCash)} (float {formatCurrency(posSession.openingFloat)} + {formatCurrency(sessionStats.cashRevenue)} sales)</p>
+                      <p className="text-xs text-[#aba8a4]">Expected: {formatCurrency(expectedCash)} (float {formatCurrency(shiftSession.openingFloat)} + {formatCurrency(sessionStats.cashRevenue)} sales)</p>
                       <p className="text-2xl font-black text-[#f4efeb] tabular-nums">{formatCurrency(parseFloat(closingCashStr) || 0)}</p>
                       <Numpad value={closingCashStr} onChange={setClosingCashStr}/>
                     </div>
@@ -1070,7 +1206,7 @@ export default function POSPage() {
                 <p className="text-2xl font-bold text-[#5ecf4f] font-mono mb-3">{formatCurrency(parseFloat(openingFloatStr) || 0)}</p>
                 <Numpad value={openingFloatStr} onChange={setOpeningFloatStr}/>
               </div>
-              <button onClick={openSession} disabled={sessionLoading}
+              <button onClick={() => openSession()} disabled={sessionLoading}
                 className="w-full bg-[#349f2d] hover:bg-[#287e22] disabled:opacity-40 text-white rounded-xl py-3 font-semibold text-sm transition-colors">
                 {sessionLoading ? 'Opening…' : 'Open Shift'}
               </button>
@@ -1117,15 +1253,19 @@ export default function POSPage() {
     <div className="h-screen flex flex-col bg-[#111311] overflow-hidden">
 
       {/* ── Offline / sync banner — shown when device has no internet or pending orders ── */}
-      {(!isOnline || pendingCount > 0) && (
+      {(!isOnline || pendingCount > 0 || failedSyncCount > 0) && (
         <div className={`shrink-0 flex items-center justify-between px-3 py-1.5 text-xs font-medium ${
           !isOnline
             ? 'bg-yellow-400/15 border-b border-yellow-400/30 text-yellow-300'
-            : 'bg-blue-400/10 border-b border-blue-400/20 text-blue-300'
+            : failedSyncCount > 0
+              ? 'bg-red-400/10 border-b border-red-400/30 text-red-300'
+              : 'bg-blue-400/10 border-b border-blue-400/20 text-blue-300'
         }`}>
           <div className="flex items-center gap-2">
             {!isOnline ? (
               <><AlertCircle size={12}/> No internet — orders will be saved locally until reconnected</>
+            ) : failedSyncCount > 0 ? (
+              <><AlertCircle size={12}/> {failedSyncCount} order{failedSyncCount !== 1 ? 's' : ''} failed to sync — ask a manager</>
             ) : (
               <><Clock size={12}/> {pendingCount} offline order{pendingCount !== 1 ? 's' : ''} waiting to sync</>
             )}
@@ -1135,9 +1275,9 @@ export default function POSPage() {
               onClick={async () => {
                 setSyncing(true);
                 try {
-                  await syncPendingOrders();
-                  const remaining = await getPendingOrders();
-                  setPendingCount(remaining.length);
+                  const result = await syncPendingOrders();
+                  await refreshQueueCounts();
+                  if (result.authFailed) alert('Session expired — please sign in again to sync offline orders.');
                   fetchOrders(); fetchSession();
                 } finally { setSyncing(false); }
               }}
@@ -1356,7 +1496,7 @@ export default function POSPage() {
               <span className="text-sm font-semibold text-[#aba8a4] uppercase tracking-wide">Total</span>
               <span className="text-2xl font-black text-[#5ecf4f] tabular-nums">{formatCurrency(total)}</span>
             </div>
-            <button onClick={() => setView('payment')} disabled={cart.length === 0}
+            <button onClick={goToPayment} disabled={cart.length === 0}
               className="w-full bg-[#349f2d] hover:bg-[#287e22] disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-2xl py-5 font-bold text-base transition-all active:scale-[0.98] shadow-[0_0_24px_rgba(52,159,45,0.4)]">
               <Receipt size={14} className="inline mr-1.5 -mt-0.5"/>
               Charge {cart.length > 0 ? formatCurrency(total) : ''}

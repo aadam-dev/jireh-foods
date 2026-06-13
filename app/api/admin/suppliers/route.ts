@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { auth } from '@/src/lib/auth';
 import { prisma } from '@/src/lib/prisma';
+import { UserRole } from '@prisma/client';
+import { requireResource, requireRoles } from '@/src/lib/api-auth';
 
 export async function GET() {
-  const session = await auth();
-  if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const authResult = await requireResource('suppliers');
+  if (authResult instanceof NextResponse) return authResult;
 
   const suppliers = await prisma.supplier.findMany({
     where: { isActive: true },
@@ -15,12 +16,10 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
-  const session = await auth();
-  if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  const user = session.user as any;
-  if (!['OWNER', 'MANAGER', 'ACCOUNTANT'].includes(user.role)) {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-  }
+  const authResult = await requireResource('suppliers');
+  if (authResult instanceof NextResponse) return authResult;
+  const forbidden = requireRoles(authResult.user.role, [UserRole.OWNER, UserRole.MANAGER]);
+  if (forbidden) return forbidden;
 
   const body = await req.json();
   const supplier = await prisma.supplier.create({

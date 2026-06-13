@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { auth } from '@/src/lib/auth';
 import { getSetting, setSetting } from '@/src/lib/settings';
 import { logAudit } from '@/src/lib/audit';
 import { z } from 'zod';
+import { UserRole } from '@prisma/client';
+import { requireAuth, requireRoles } from '@/src/lib/api-auth';
 
 // All settings keys the UI is allowed to read/write
 const PUBLIC_KEYS = [
@@ -24,8 +25,10 @@ const upsertSchema = z.object({
 
 // GET /api/admin/settings — returns all public keys as { key: value } map
 export async function GET() {
-  const session = await auth();
-  if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const authResult = await requireAuth();
+  if (authResult instanceof NextResponse) return authResult;
+  const forbidden = requireRoles(authResult.user.role, [UserRole.OWNER]);
+  if (forbidden) return forbidden;
 
   try {
     const entries = await Promise.all(
@@ -40,11 +43,11 @@ export async function GET() {
 
 // PATCH /api/admin/settings — upsert a single key (OWNER only)
 export async function PATCH(req: NextRequest) {
-  const session = await auth();
-  if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-
-  const role = (session.user as any).role;
-  if (role !== 'OWNER') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  const authResult = await requireAuth();
+  if (authResult instanceof NextResponse) return authResult;
+  const forbidden = requireRoles(authResult.user.role, [UserRole.OWNER]);
+  if (forbidden) return forbidden;
+  const session = authResult;
 
   try {
     const body = await req.json();
@@ -66,7 +69,7 @@ export async function PATCH(req: NextRequest) {
     const setting = await setSetting(key, value);
 
     await logAudit({
-      userId: session.user.id,
+      userId: authResult.user.id,
       action: 'UPDATE',
       entity: 'Settings',
       entityId: key,

@@ -7,10 +7,10 @@
 -- Users
 INSERT INTO "User" (id, name, email, password, role, "isActive", "passwordResetRequired", "createdAt", "updatedAt")
 VALUES
-  ('user_owner_jireh', 'Chef Prince', 'Prince@jireh.com',
+  ('user_owner_jireh', 'Chef Prince', 'prince@jireh.com',
    '$2a$12$s.rglgRFRlp4y0Or9eKNb.7ZQluUIuqme3ZAU.NBo/g4354zZeETC',
    'OWNER', true, false, NOW(), NOW()),
-  ('user_cashier_ama', 'Nii Boye', 'Nii@jireh.com',
+  ('user_cashier_ama', 'Nii Boye', 'nii@jireh.com',
    '$2a$12$VltzYYzWhZM5k30WswF7X.80uL9SdW5Bw2g3vXVzpl7OKoWMERr1q',
    'CASHIER', true, false, NOW(), NOW())
 ON CONFLICT (email) DO NOTHING;

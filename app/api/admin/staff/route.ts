@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { auth } from '@/src/lib/auth';
 import { prisma } from '@/src/lib/prisma';
 import { z } from 'zod';
 import bcrypt from 'bcryptjs';
+import { UserRole } from '@prisma/client';
+import { requireAuth, requireRoles } from '@/src/lib/api-auth';
+import { canAssignRole } from '@/src/lib/permissions';
 
 const createSchema = z.object({
   name: z.string().min(1),
@@ -18,8 +20,10 @@ const createSchema = z.object({
 });
 
 export async function GET() {
-  const session = await auth();
-  if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const authResult = await requireAuth();
+  if (authResult instanceof NextResponse) return authResult;
+  const forbidden = requireRoles(authResult.user.role, [UserRole.OWNER, UserRole.MANAGER]);
+  if (forbidden) return forbidden;
 
   const staff = await prisma.user.findMany({
     orderBy: { name: 'asc' },
@@ -29,13 +33,18 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
-  const session = await auth();
-  if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  const role = (session.user as any).role;
-  if (!['OWNER', 'MANAGER'].includes(role)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  const authResult = await requireAuth();
+  if (authResult instanceof NextResponse) return authResult;
+  const forbidden = requireRoles(authResult.user.role, [UserRole.OWNER, UserRole.MANAGER]);
+  if (forbidden) return forbidden;
+  const session = authResult;
 
   const body = await req.json();
   const data = createSchema.parse(body);
+
+  if (!canAssignRole(authResult.user.role, data.role as UserRole)) {
+    return NextResponse.json({ error: 'You cannot assign that role' }, { status: 403 });
+  }
 
   const emailLower = data.email.toLowerCase();
   const existing = await prisma.user.findUnique({ where: { email: emailLower } });

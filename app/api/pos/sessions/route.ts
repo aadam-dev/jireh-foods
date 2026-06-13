@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/src/lib/auth';
 import { prisma } from '@/src/lib/prisma';
+import { classifyRegisterSession } from '@/src/lib/session-utils';
+import { UserRole } from '@prisma/client';
 
 // Break down orders into per-method revenue, handling SPLIT orders correctly.
 function calcRevenue(orders: { total: unknown; paymentMethod: string; splitPayments: unknown }[]) {
@@ -23,6 +25,14 @@ function calcRevenue(orders: { total: unknown; paymentMethod: string; splitPayme
   return { revenue: total, cashRevenue: cash, momoRevenue: momo, boltRevenue: bolt };
 }
 
+const MANAGER_ROLES: UserRole[] = [UserRole.OWNER, UserRole.MANAGER];
+
+function canCloseSession(role: UserRole, openedBy: string, userId: string, isStale: boolean): boolean {
+  if (MANAGER_ROLES.includes(role)) return true;
+  if (isStale) return false;
+  return openedBy === userId;
+}
+
 // GET /api/pos/sessions — current open session (if any)
 export async function GET() {
   const session = await auth();
@@ -37,6 +47,8 @@ export async function GET() {
     orderBy: { openedAt: 'desc' },
   });
 
+  const registerState = open ? classifyRegisterSession(open.openedAt) : 'none';
+
   // Compute session revenue (handles SPLIT orders via calcRevenue)
   let stats = { revenue: 0, cashRevenue: 0, momoRevenue: 0, boltRevenue: 0 };
   if (open) {
@@ -48,7 +60,12 @@ export async function GET() {
     stats = { revenue: r.revenue, cashRevenue: r.cashRevenue, momoRevenue: r.momoRevenue, boltRevenue: r.boltRevenue };
   }
 
-  return NextResponse.json({ session: open, ...stats });
+  return NextResponse.json({
+    session: open,
+    registerState,
+    isStale: registerState === 'stale',
+    ...stats,
+  });
 }
 
 // POST /api/pos/sessions — open a new session
@@ -56,26 +73,62 @@ export async function POST(req: NextRequest) {
   const session = await auth();
   if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  // Check for existing open session
-  const existing = await prisma.posSession.findFirst({ where: { status: 'OPEN' } });
-  if (existing) {
-    return NextResponse.json({ error: 'A session is already open' }, { status: 409 });
-  }
-
   const body = await req.json();
   const openingFloat = parseFloat(body.openingFloat ?? '0');
+  const forceCloseStale = body.forceCloseStale === true;
 
-  const posSession = await prisma.posSession.create({
-    data: {
-      openedBy: session.user.id!,
-      openingFloat,
-      status: 'OPEN',
-      notes: body.notes ?? null,
-    },
-    include: { openedByUser: { select: { id: true, name: true } } },
-  });
+  try {
+    const posSession = await prisma.$transaction(async (tx) => {
+      const existing = await tx.posSession.findFirst({
+        where: { status: 'OPEN' },
+        include: { openedByUser: { select: { id: true, name: true } } },
+      });
 
-  return NextResponse.json(posSession);
+      if (existing) {
+        const stale = classifyRegisterSession(existing.openedAt) === 'stale';
+        if (!stale) {
+          throw Object.assign(new Error('A session is already open'), { status: 409 });
+        }
+        if (!forceCloseStale) {
+          throw Object.assign(new Error('Stale session must be closed before opening a new shift'), { status: 409, code: 'STALE_OPEN' });
+        }
+        const role = (session.user as any).role as UserRole;
+        if (!MANAGER_ROLES.includes(role)) {
+          throw Object.assign(new Error('Only a manager can close a stale shift'), { status: 403 });
+        }
+        await tx.posSession.update({
+          where: { id: existing.id },
+          data: {
+            status: 'CLOSED',
+            closedAt: new Date(),
+            closedBy: session.user.id!,
+            notes: existing.notes
+              ? `${existing.notes}\nAuto-closed stale session before new shift.`
+              : 'Auto-closed stale session before new shift.',
+          },
+        });
+      }
+
+      return tx.posSession.create({
+        data: {
+          openedBy: session.user.id!,
+          openingFloat,
+          status: 'OPEN',
+          notes: body.notes ?? null,
+        },
+        include: { openedByUser: { select: { id: true, name: true } } },
+      });
+    });
+
+    return NextResponse.json(posSession);
+  } catch (err: any) {
+    const status = err?.status ?? 500;
+    if (status !== 500) {
+      return NextResponse.json({ error: err.message, code: err.code }, { status });
+    }
+    console.error('[pos/sessions POST]', err);
+    return NextResponse.json({ error: 'Failed to open session' }, { status: 500 });
+  }
 }
 
 // PATCH /api/pos/sessions — close the current session
@@ -87,17 +140,28 @@ export async function PATCH(req: NextRequest) {
   const {
     sessionId,
     closingCash,
-    closingMomo,   // actual MoMo received (entered by staff at close)
-    closingBolt,   // actual Bolt Food received (entered by staff at close)
+    closingMomo,
+    closingBolt,
     notes,
   } = body;
 
-  const pos = await prisma.posSession.findUnique({ where: { id: sessionId } });
+  const pos = await prisma.posSession.findUnique({
+    where: { id: sessionId },
+    include: { openedByUser: { select: { id: true, name: true } } },
+  });
   if (!pos || pos.status !== 'OPEN') {
     return NextResponse.json({ error: 'Session not found or already closed' }, { status: 404 });
   }
 
-  // Compute expected amounts per payment method before closing (handles SPLIT)
+  const isStale = classifyRegisterSession(pos.openedAt) === 'stale';
+  const role = (session.user as any).role as UserRole;
+  if (!canCloseSession(role, pos.openedBy, session.user.id!, isStale)) {
+    return NextResponse.json(
+      { error: isStale ? 'Ask a manager to close this stale shift' : 'You can only close your own shift' },
+      { status: 403 },
+    );
+  }
+
   const orders = await prisma.order.findMany({
     where: { sessionId, status: 'COMPLETED', isDemo: false },
     select: { total: true, paymentMethod: true, splitPayments: true },
@@ -110,11 +174,9 @@ export async function PATCH(req: NextRequest) {
   const actualMomo = closingMomo != null ? parseFloat(closingMomo) : momoRevenue;
   const actualBolt = closingBolt != null ? parseFloat(closingBolt) : boltRevenue;
 
-  // revenueByMethod for the summary display
   const revenueByMethod: Record<string, number> = {
     CASH: cashRevenue, MOMO: momoRevenue, BOLT_FOOD: boltRevenue,
   };
-  // Add any other methods (CARD, BANK_TRANSFER etc.) from non-split orders
   for (const o of orders) {
     if (o.paymentMethod !== 'SPLIT' && o.paymentMethod !== 'CASH' &&
         o.paymentMethod !== 'MOMO' && o.paymentMethod !== 'BOLT_FOOD') {
@@ -143,11 +205,9 @@ export async function PATCH(req: NextRequest) {
       orderCount: orders.length,
       totalRevenue,
       revenueByMethod,
-      // Per-method expected vs actual (for reconciliation display)
       cash:  { expected: expectedCash,  actual: actualCash, discrepancy: actualCash - expectedCash },
       momo:  { expected: momoRevenue,   actual: actualMomo, discrepancy: actualMomo - momoRevenue },
       bolt:  { expected: boltRevenue,   actual: actualBolt, discrepancy: actualBolt - boltRevenue },
-      // Legacy fields kept so the existing closing-summary screen still works
       expectedCash,
       closingCash: actualCash,
       discrepancy: actualCash - expectedCash,
