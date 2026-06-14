@@ -6,6 +6,7 @@ import { generateOrderNumber } from '@/src/lib/utils';
 import { getTaxRate } from '@/src/lib/settings';
 import { logAudit } from '@/src/lib/audit';
 import { applyInventoryDelta } from '@/src/lib/api-auth';
+import { buildTransactionSnapshot, recordOrderEvent } from '@/src/lib/order-events';
 
 const orderItemSchema = z.object({
   menuItemId: z.string(),
@@ -223,7 +224,48 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    return created;
+    const snapshot = buildTransactionSnapshot({
+      orderNumber: created.orderNumber,
+      clientRef: created.clientRef,
+      staff: created.staff
+        ? { id: session.user.id, name: created.staff.name }
+        : { id: session.user.id, name: (session.user as any).name ?? 'Staff' },
+      sessionId: created.sessionId,
+      items: created.items,
+      subtotal: created.subtotal,
+      discountAmount: created.discountAmount,
+      taxAmount: created.taxAmount,
+      total: created.total,
+      paymentMethod: created.paymentMethod,
+      paymentStatus: created.paymentStatus,
+      paymentRef: created.paymentRef,
+      splitPayments: created.splitPayments,
+      tenderedAmount: created.tenderedAmount,
+      changeAmount: created.changeAmount,
+      deliveryType: created.deliveryType,
+      customerName: created.customerName,
+      customerPhone: created.customerPhone,
+      notes: created.notes,
+    });
+
+    await tx.order.update({
+      where: { id: created.id },
+      data: { transactionSnapshot: snapshot as any },
+    });
+
+    await recordOrderEvent(tx, {
+      orderId: created.id,
+      type: 'CREATED',
+      actorUserId: session.user.id,
+      payload: {
+        source: 'POS',
+        paymentMethod: data.paymentMethod,
+        total: Number(created.total),
+        isDemo,
+      },
+    });
+
+    return { ...created, transactionSnapshot: snapshot };
   });
   } catch (err: any) {
     if (err?.status === 409) {

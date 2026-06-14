@@ -1,7 +1,8 @@
 # Jireh Natural Foods — System Test Plan
 
-> Last updated: May 2026 (split payments, MoMo amount entry, per-method reconciliation)  
+> Last updated: June 2026 (order audit timeline, transaction snapshots, void inventory actions)  
 > System: [jirehnaturalfoods.vercel.app](https://jirehnaturalfoods.vercel.app)  
+> Staff training: [docs/TRAINING.md](./docs/TRAINING.md) · Team guide: [docs/TEAM_GUIDE.md](./docs/TEAM_GUIDE.md)  
 > Run these manually or hand to Claude Code with: _"Run the Jireh test plan at docs/TESTING.md"_
 
 ---
@@ -230,17 +231,27 @@
 ## 7. Back-Office — Orders
 
 - [ ] Navigate to Admin → Orders  
-  **Expect:** Table showing all orders with order number, items, total, payment, status
+  **Expect:** Table showing all orders with order number, items, cashier, total, payment, status
 - [ ] Filter by payment method "Cash"  
   **Expect:** Only cash orders shown
 - [ ] Filter by status "Completed"  
   **Expect:** Correct filter applied
+- [ ] Filter by **shift** (session dropdown)  
+  **Expect:** Only orders from that POS session shown
 - [ ] Click an order row  
-  **Expect:** Order detail modal opens with full item breakdown
+  **Expect:** Detail modal with **As transacted** snapshot and **Timeline** sections
+- [ ] Verify snapshot shows items/prices as at sale (immutable even if menu price changed later)  
+  **Expect:** Snapshot section populated for new orders; older orders may show fallback message
 - [ ] As OWNER: click "Void / Refund Order" in detail modal  
-  **Expect:** Void modal opens with reason textarea and "Restock inventory" checkbox
-- [ ] Enter reason "Customer cancelled", check restock, submit  
-  **Expect:** Order marked VOID; appears with red "VOID" status badge
+  **Expect:** Void modal with reason dropdown + inventory action (Restock / Waste / None)
+- [ ] Void with reason "Customer cancelled" + **Restock**  
+  **Expect:** Order `CANCELLED`; timeline shows VOIDED event; ingredients restocked
+- [ ] Void with reason "Customer no-show" + **Waste**  
+  **Expect:** WASTE inventory transactions logged; stock **not** restored
+- [ ] Try void as CASHIER (should not have access to admin)  
+  **Expect:** N/A — cashier blocked from admin entirely
+- [ ] Verify timeline shows CREATED event on new POS orders  
+  **Expect:** Actor = cashier name, timestamp correct
 
 ---
 
@@ -445,6 +456,8 @@ Run these after any deployment:
 - [ ] Receipt prints on paper in 80mm thermal format (not full page)
 - [ ] SPLIT receipt shows individual legs, not generic "Payment (SPLIT)"
 - [ ] Admin Orders: Split orders show "Split" badge; customer page shows "Split" label
+- [ ] Admin Orders: snapshot + timeline visible on order detail; shift filter works
+- [ ] Admin Orders: void requires reason + inventory action; DELETE endpoint disabled
 - [ ] Offline order saved → syncs automatically when reconnected
 - [ ] Menu matches public website items and prices exactly
 - [ ] Default delivery type is **Takeaway** (not Dine In)

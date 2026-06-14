@@ -48,7 +48,8 @@ Lessons drawn from the Delish Odoo implementation report (esp. its hard-won
 | **Offline orders never lost** | ⚠️ weak (main pain point) | ✅ **stronger** | IndexedDB queue, auto-sync, visible banner + "Sync now" |
 | **Idempotent orders (no duplicates)** | ⚠️ a known failure mode | ✅ **new** | `clientRef` unique key — safe under re-sync/double-tap |
 | Role-based access | ✅ | ✅ | Owner/Manager/Accountant/Cashier/Staff + IT demo |
-| Void/refund with audit | ✅ | ✅ | Owner/Manager only, reason required, audit-logged |
+| Void/refund with audit | ✅ | ✅ | Owner/Manager only; reason + inventory action; order timeline + snapshot |
+| Order timeline (Odoo chatter) | ✅ | ✅ **new** | `OrderEvent` per order; snapshot at sale time |
 | Audit log | ✅ | ✅ | Create/update/void, user + IP |
 
 **Takeaway:** Jireh already meets or exceeds the Odoo deployment on the points
