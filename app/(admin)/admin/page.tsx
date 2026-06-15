@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import {
   ShoppingBag, TrendingUp, AlertTriangle, DollarSign, Package,
-  ArrowRight, BarChart3, ArrowUpRight, ArrowDownRight, Unlock, Lock,
+  ArrowRight, BarChart3, ArrowUpRight, ArrowDownRight, Monitor,
 } from 'lucide-react';
 import {
   AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
@@ -30,20 +30,34 @@ const PAYMENT_COLORS: Record<string, string> = {
   CASH: '#5ecf4f', MOMO: '#f59e0b', BOLT_FOOD: '#60a5fa', CARD: '#a78bfa', BANK_TRANSFER: '#c084fc', UNPAID: '#6b7280',
 };
 
-function StatCard({ title, value, sub, trend, icon, iconBg = 'bg-[#349f2d]/20' }: {
-  title: string; value: string; sub?: string; trend?: number; icon: React.ReactNode; iconBg?: string;
+type MetricAccent = 'green' | 'blue' | 'purple' | 'orange';
+
+const ACCENT: Record<MetricAccent, { bar: string; iconBg: string; iconBorder: string; trendPos: string }> = {
+  green:  { bar: 'bg-[#349f2d]',   iconBg: 'bg-[#349f2d]/15',   iconBorder: 'border-[#349f2d]/25',   trendPos: 'text-[#5ecf4f]' },
+  blue:   { bar: 'bg-blue-500',    iconBg: 'bg-blue-500/15',    iconBorder: 'border-blue-500/25',    trendPos: 'text-blue-400' },
+  purple: { bar: 'bg-purple-500',  iconBg: 'bg-purple-500/15',  iconBorder: 'border-purple-500/25',  trendPos: 'text-purple-400' },
+  orange: { bar: 'bg-orange-400',  iconBg: 'bg-orange-400/15',  iconBorder: 'border-orange-400/25',  trendPos: 'text-orange-400' },
+};
+
+function StatCard({ title, value, sub, trend, icon, accent = 'green' }: {
+  title: string; value: string; sub?: string; trend?: number; icon: React.ReactNode; accent?: MetricAccent;
 }) {
+  const a = ACCENT[accent];
   return (
-    <div className="bg-[#191c19] border border-[#2b2f2b] rounded-2xl p-5">
-      <div className="flex items-start justify-between mb-3">
-        <p className="text-xs text-[#aba8a4]">{title}</p>
-        <div className={`w-8 h-8 rounded-xl ${iconBg} border border-white/5 flex items-center justify-center`}>{icon}</div>
+    <div className="relative bg-[#191c19] border border-[#2b2f2b] rounded-2xl p-5 overflow-hidden">
+      {/* Top accent line */}
+      <div className={`absolute top-0 inset-x-0 h-[2px] ${a.bar}`} />
+      <div className="flex items-start justify-between mb-4">
+        <p className="text-xs font-medium text-[#aba8a4] uppercase tracking-wider">{title}</p>
+        <div className={`w-9 h-9 rounded-xl ${a.iconBg} border ${a.iconBorder} flex items-center justify-center shrink-0`}>
+          {icon}
+        </div>
       </div>
-      <p className="text-2xl font-bold text-[#f4efeb]">{value}</p>
-      {sub && <p className="text-xs text-[#aba8a4] mt-1">{sub}</p>}
+      <p className="text-3xl font-bold text-[#f4efeb] tracking-tight tabular-nums">{value}</p>
+      {sub && <p className="text-xs text-[#aba8a4] mt-1.5">{sub}</p>}
       {trend !== undefined && (
-        <div className={`flex items-center gap-1 mt-2 text-xs font-medium ${trend >= 0 ? 'text-[#5ecf4f]' : 'text-red-400'}`}>
-          {trend >= 0 ? <ArrowUpRight size={12}/> : <ArrowDownRight size={12}/>}
+        <div className={`flex items-center gap-1 mt-3 text-xs font-semibold ${trend >= 0 ? a.trendPos : 'text-red-400'}`}>
+          {trend >= 0 ? <ArrowUpRight size={13}/> : <ArrowDownRight size={13}/>}
           {Math.abs(trend).toFixed(1)}% vs yesterday
         </div>
       )}
@@ -92,36 +106,49 @@ export default function DashboardPage() {
   return (
     <div className="p-4 sm:p-6 space-y-4 sm:space-y-6 max-w-7xl mx-auto">
       {/* Header */}
-      <div className="flex items-start sm:items-center justify-between gap-3">
+      <div className="flex items-start sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-xl sm:text-2xl font-bold text-[#f4efeb] font-serif">Dashboard</h1>
-          <p className="text-xs sm:text-sm text-[#aba8a4] mt-0.5">
+          <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-[#aba8a4]/60 mb-1">Back Office</p>
+          <h1 className="text-xl sm:text-2xl font-bold text-[#f4efeb] font-serif leading-tight">Dashboard</h1>
+          <p className="text-xs text-[#aba8a4] mt-1">
             {new Date().toLocaleDateString('en-GH', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
           </p>
         </div>
-        {/* Session status pill */}
-        {data?.activeSession ? (
-          <Link href="/pos" className="flex items-center gap-2 px-3 sm:px-4 py-2 bg-[#349f2d]/10 border border-[#349f2d]/30 rounded-xl text-xs sm:text-sm text-[#5ecf4f] hover:bg-[#349f2d]/20 transition-colors shrink-0">
-            <Unlock size={13}/> <span className="hidden sm:inline">Shift Open ·</span> {data.activeSession.openedByUser?.name}
+        <div className="flex items-center gap-2 shrink-0">
+          <Link
+            href="/pos"
+            className="hidden sm:flex items-center gap-2 px-3.5 py-2 bg-[#191c19] border border-[#2b2f2b] rounded-xl text-sm text-[#aba8a4] hover:border-[#404540] hover:text-[#f4efeb] transition-all"
+          >
+            <Monitor size={14}/> POS Register
           </Link>
-        ) : (
-          <Link href="/pos" className="flex items-center gap-2 px-3 sm:px-4 py-2 bg-[#191c19] border border-[#2b2f2b] rounded-xl text-xs sm:text-sm text-[#aba8a4] hover:border-[#404540] transition-colors shrink-0">
-            <Lock size={13}/> <span className="hidden sm:inline">No Active Shift</span><span className="sm:hidden">POS</span>
-          </Link>
-        )}
+          {data?.activeSession ? (
+            <div className="flex items-center gap-2 px-3.5 py-2 bg-[#349f2d]/10 border border-[#349f2d]/30 rounded-xl text-xs sm:text-sm text-[#5ecf4f]">
+              <span className="w-1.5 h-1.5 rounded-full bg-[#5ecf4f] animate-pulse shrink-0" />
+              <span className="hidden sm:inline">Shift open ·</span>
+              <span className="font-semibold">{data.activeSession.openedByUser?.name}</span>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 px-3.5 py-2 bg-[#191c19] border border-[#2b2f2b] rounded-xl text-xs sm:text-sm text-[#aba8a4]">
+              <span className="w-1.5 h-1.5 rounded-full bg-[#aba8a4]/30 shrink-0" />
+              <span className="hidden sm:inline">No active shift</span>
+              <span className="sm:hidden">Closed</span>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* KPI cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard title="Today's Revenue" value={formatCurrency(data?.today.revenue ?? 0)}
-          trend={data?.today.revenueTrend} icon={<DollarSign size={16} className="text-[#5ecf4f]"/>} />
+          trend={data?.today.revenueTrend} accent="green"
+          icon={<DollarSign size={16} className="text-[#5ecf4f]"/>} />
         <StatCard title="Today's Orders" value={String(data?.today.orders ?? 0)}
-          icon={<ShoppingBag size={16} className="text-blue-400"/>} iconBg="bg-blue-500/20" />
+          accent="blue" icon={<ShoppingBag size={16} className="text-blue-400"/>} />
         <StatCard title="Month Revenue" value={formatCurrency(data?.month.revenue ?? 0)}
-          sub={`${data?.month.orders ?? 0} orders`}
-          icon={<TrendingUp size={16} className="text-purple-400"/>} iconBg="bg-purple-500/20" />
+          sub={`${data?.month.orders ?? 0} orders`} accent="purple"
+          icon={<TrendingUp size={16} className="text-purple-400"/>} />
         <StatCard title="Stock Value" value={formatCurrency(data?.stockValue ?? 0)}
-          icon={<Package size={16} className="text-orange-400"/>} iconBg="bg-orange-500/20" />
+          accent="orange" icon={<Package size={16} className="text-orange-400"/>} />
       </div>
 
       {/* Revenue trend chart */}

@@ -222,59 +222,80 @@ export default function MenuPage() {
                     action={{ label: 'Add Item', onClick: () => openItemModal(activeCat.id) }}
                   />
                 ) : (
-                  <div className="divide-y divide-[#2b2f2b]">
+                  <div className="p-4 grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3">
                     {activeCat.items.map((item: any) => (
-                      <div key={item.id} className="flex items-center gap-3 px-5 py-3">
-                        {/* Thumbnail */}
-                        <div className="w-12 h-12 rounded-xl overflow-hidden shrink-0 bg-[#111311] border border-[#2b2f2b] flex items-center justify-center">
+                      <div
+                        key={item.id}
+                        className="group relative flex flex-col rounded-2xl border border-[#2b2f2b] bg-[#111311] overflow-hidden hover:border-[#404540] transition-all duration-200"
+                      >
+                        {/* Image area */}
+                        <div className="relative aspect-[4/3] bg-[#0a0b0a] overflow-hidden">
                           {item.image ? (
-                            <img src={item.image} alt={item.name} className="w-full h-full object-cover" />
+                            <img
+                              src={item.image}
+                              alt={item.name}
+                              className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+                            />
                           ) : (
-                            <UtensilsCrossed size={16} className="text-[#2b2f2b]" />
+                            <div className="w-full h-full flex items-center justify-center">
+                              <UtensilsCrossed size={28} className="text-[#2b2f2b]" />
+                            </div>
                           )}
-                        </div>
-
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span className="text-sm font-medium text-[#f4efeb]">{item.name}</span>
-                            {item.isPopular && <Star size={11} className="text-yellow-400 fill-yellow-400" />}
-                            {!item.isAvailable && <Badge variant="red" size="sm">Off menu</Badge>}
-                            {(item.tags ?? []).map((tag: string) => (
-                              <Badge key={tag} variant="gray" size="sm">{tag}</Badge>
-                            ))}
+                          {/* Overlay actions on hover */}
+                          <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex items-center justify-center gap-2">
+                            <button
+                              onClick={() => openItemModal(activeCat.id, item)}
+                              className="p-2 rounded-xl bg-white/15 hover:bg-white/25 text-white backdrop-blur-sm transition-colors"
+                              title="Edit item"
+                            >
+                              <Pencil size={14} />
+                            </button>
+                            <button
+                              onClick={() => setDeleteDialog({ open: true, id: item.id, type: 'item', name: item.name })}
+                              className="p-2 rounded-xl bg-red-500/20 hover:bg-red-500/35 text-red-300 backdrop-blur-sm transition-colors"
+                              title="Delete item"
+                            >
+                              <Trash2 size={14} />
+                            </button>
                           </div>
-                          {item.description && (
-                            <p className="text-xs text-[#aba8a4] mt-0.5 truncate max-w-xs">{item.description}</p>
-                          )}
+                          {/* Status badges on image */}
+                          <div className="absolute top-2 left-2 flex flex-col gap-1">
+                            {item.isPopular && (
+                              <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-lg bg-yellow-500/90 text-[10px] font-bold text-black backdrop-blur-sm">
+                                <Star size={9} className="fill-black" /> Popular
+                              </span>
+                            )}
+                            {!item.isAvailable && (
+                              <span className="px-1.5 py-0.5 rounded-lg bg-red-500/90 text-[10px] font-bold text-white backdrop-blur-sm">
+                                Off menu
+                              </span>
+                            )}
+                          </div>
                         </div>
 
-                        <div className="text-right shrink-0">
-                          <p className="text-sm font-semibold text-[#f4efeb]">{formatCurrency(item.price)}</p>
-                          {item.costPrice && (
-                            <p className="text-xs text-[#aba8a4]">Cost: {formatCurrency(item.costPrice)}</p>
-                          )}
-                        </div>
+                        {/* Content */}
+                        <div className="flex flex-col gap-2 p-3 flex-1">
+                          <div className="flex-1">
+                            <p className="text-sm font-semibold text-[#f4efeb] leading-snug line-clamp-1">{item.name}</p>
+                            {item.description && (
+                              <p className="text-[11px] text-[#aba8a4] mt-0.5 line-clamp-2 leading-snug">{item.description}</p>
+                            )}
+                          </div>
 
-                        <div className="flex items-center gap-1 shrink-0">
-                          <button
-                            onClick={() => toggleItem(item.id, 'isAvailable', item.isAvailable)}
-                            className={`p-1.5 rounded-lg transition-colors ${item.isAvailable ? 'text-[#5ecf4f] hover:bg-[#349f2d]/10' : 'text-[#aba8a4] hover:bg-white/5'}`}
-                            title={item.isAvailable ? 'Mark unavailable' : 'Mark available'}
-                          >
-                            {item.isAvailable ? <ToggleRight size={16} /> : <ToggleLeft size={16} />}
-                          </button>
-                          <button
-                            onClick={() => openItemModal(activeCat.id, item)}
-                            className="p-1.5 rounded-lg text-[#aba8a4] hover:text-[#f4efeb] hover:bg-white/5 transition-colors"
-                          >
-                            <Pencil size={14} />
-                          </button>
-                          <button
-                            onClick={() => setDeleteDialog({ open: true, id: item.id, type: 'item', name: item.name })}
-                            className="p-1.5 rounded-lg text-[#aba8a4] hover:text-red-400 hover:bg-red-500/10 transition-colors"
-                          >
-                            <Trash2 size={14} />
-                          </button>
+                          <div className="flex items-center justify-between pt-1 border-t border-[#2b2f2b]">
+                            <p className="text-sm font-bold text-[#5ecf4f] tabular-nums">{formatCurrency(item.price)}</p>
+                            <button
+                              onClick={() => toggleItem(item.id, 'isAvailable', item.isAvailable)}
+                              className={`p-1 rounded-lg transition-colors ${
+                                item.isAvailable
+                                  ? 'text-[#5ecf4f] hover:bg-[#349f2d]/15'
+                                  : 'text-[#aba8a4] hover:bg-white/5'
+                              }`}
+                              title={item.isAvailable ? 'Mark unavailable' : 'Mark available'}
+                            >
+                              {item.isAvailable ? <ToggleRight size={18} /> : <ToggleLeft size={18} />}
+                            </button>
+                          </div>
                         </div>
                       </div>
                     ))}
