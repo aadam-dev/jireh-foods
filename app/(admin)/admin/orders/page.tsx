@@ -213,7 +213,7 @@ export default function OrdersPage() {
               key={s}
               onClick={() => setStatusFilter(s)}
               className={[
-                'px-3 py-1.5 rounded-xl text-xs font-medium transition-all border',
+                'px-3 py-1.5 rounded-xl text-xs font-medium transition border',
                 statusFilter === s
                   ? 'bg-[#349f2d]/20 text-[#5ecf4f] border-[#349f2d]/40'
                   : 'text-[#aba8a4] border-[#2b2f2b] hover:border-[#404540] hover:text-[#f4efeb]',

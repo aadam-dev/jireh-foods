@@ -111,11 +111,11 @@ export function Sidebar({ user, lowStockCount = 0, onClose, mobile = false }: Si
         <Link
           href="/pos"
           onClick={onClose}
-          className="group flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl bg-[var(--accent)]/10 hover:bg-[var(--accent)]/18 border border-[var(--accent)]/25 hover:border-[var(--accent)]/40 transition-all"
+          className="group flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl bg-[var(--accent)]/10 hover:bg-[var(--accent)]/18 border border-[var(--accent)]/25 hover:border-[var(--accent)]/40 transition"
         >
           <Monitor size={14} className="text-[var(--accent-bright)] shrink-0" />
           <span className="text-sm font-semibold text-[var(--accent-bright)] flex-1">Open POS Register</span>
-          <ChevronRight size={12} className="text-[var(--accent-bright)]/50 group-hover:text-[var(--accent-bright)] group-hover:translate-x-0.5 transition-all" />
+          <ChevronRight size={12} className="text-[var(--accent-bright)]/50 group-hover:text-[var(--accent-bright)] group-hover:translate-x-0.5 transition" />
         </Link>
       </div>
 
@@ -139,7 +139,7 @@ export function Sidebar({ user, lowStockCount = 0, onClose, mobile = false }: Si
                       href={item.href}
                       onClick={onClose}
                       className={[
-                        'relative flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-150',
+                        'relative flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition duration-150',
                         active
                           ? 'bg-[var(--accent)]/12 text-[var(--foreground)]'
                           : 'text-[var(--muted)] hover:text-[var(--foreground)] hover:bg-white/[0.04]',
@@ -182,7 +182,7 @@ export function Sidebar({ user, lowStockCount = 0, onClose, mobile = false }: Si
         </div>
         <button
           onClick={() => signOut({ callbackUrl: '/login' })}
-          className="flex items-center gap-2.5 w-full px-3 py-2 rounded-xl text-sm text-[var(--muted)] hover:text-red-400 hover:bg-red-500/8 transition-all"
+          className="flex items-center gap-2.5 w-full px-3 py-2 rounded-xl text-sm text-[var(--muted)] hover:text-red-400 hover:bg-red-500/8 transition"
         >
           <LogOut size={14} />
           Sign out

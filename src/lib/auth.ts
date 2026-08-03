@@ -10,6 +10,13 @@ const loginSchema = z.object({
 });
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
+  /* Auth.js v5 refuses to serve any auth route unless it recognises the host.
+     It auto-detects Vercel, so production has been fine — but every other way
+     of running the built app (next start locally, Docker, any self-host, a
+     preview behind a proxy) fails with UntrustedHost and no way to sign in.
+     The app is always served from its own origin, so trusting the host is
+     correct here and makes the build runnable anywhere. */
+  trustHost: true,
   providers: [
     Credentials({
       async authorize(credentials) {

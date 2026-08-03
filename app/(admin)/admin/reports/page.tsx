@@ -193,7 +193,7 @@ export default function ReportsPage() {
             <button
               onClick={() => setExportMenuOpen(v => !v)}
               disabled={!data || !!exporting}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium bg-[#111311] border border-[#2b2f2b] text-[#aba8a4] hover:text-[#f4efeb] hover:border-[#349f2d]/50 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium bg-[#111311] border border-[#2b2f2b] text-[#aba8a4] hover:text-[#f4efeb] hover:border-[#349f2d]/50 transition disabled:opacity-40 disabled:cursor-not-allowed"
             >
               {exporting ? (
                 <span className="w-3.5 h-3.5 border border-[#aba8a4] border-t-transparent rounded-full animate-spin" />
@@ -235,7 +235,7 @@ export default function ReportsPage() {
           <div className="flex gap-1 bg-[#111311] border border-[#2b2f2b] rounded-xl p-1">
             {tabs.map(t => (
               <button key={t.id} onClick={() => setTab(t.id)}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition ${
                   tab === t.id
                     ? 'bg-[#349f2d] text-white'
                     : 'text-[#aba8a4] hover:text-[#f4efeb]'
@@ -328,7 +328,7 @@ export default function ReportsPage() {
                               </div>
                             </div>
                             <div className="h-1.5 bg-[#2b2f2b] rounded-full overflow-hidden">
-                              <div className="h-full rounded-full transition-all"
+                              <div className="h-full rounded-full transition"
                                 style={{ width: `${pct}%`, background: PAYMENT_COLORS[name] ?? '#349f2d' }} />
                             </div>
                           </div>

@@ -237,7 +237,7 @@ export default function TodayPage() {
             <span className="fl-mono font-semibold text-[var(--fl-ink)]">
               {data.activeSession._count?.orders ?? 0}
             </span>{' '}
-            orders this shift
+            order{(data.activeSession._count?.orders ?? 0) === 1 ? '' : 's'} this shift
           </span>
           <span className="text-sm text-[var(--fl-ink-2)]">
             Opening float{' '}

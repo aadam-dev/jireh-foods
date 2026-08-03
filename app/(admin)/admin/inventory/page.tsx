@@ -175,7 +175,7 @@ export default function InventoryPage() {
         <input value={searchQ} onChange={e => setSearchQ(e.target.value)} placeholder="Search items…"
           className="bg-[#191c19] border border-[#2b2f2b] rounded-xl px-3 py-2 text-sm text-[#f4efeb] placeholder:text-[#aba8a4]/60 focus:outline-none focus:border-[#349f2d] w-56"/>
         <button onClick={() => setFilterLow(!filterLow)}
-          className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium border transition-all ${filterLow ? 'bg-yellow-400/10 text-yellow-400 border-yellow-400/30' : 'text-[#aba8a4] border-[#2b2f2b] hover:border-[#404540]'}`}>
+          className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium border transition ${filterLow ? 'bg-yellow-400/10 text-yellow-400 border-yellow-400/30' : 'text-[#aba8a4] border-[#2b2f2b] hover:border-[#404540]'}`}>
           <AlertTriangle size={12}/> Low Stock Only
         </button>
       </div>

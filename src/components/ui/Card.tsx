@@ -22,7 +22,7 @@ export function Card({ children, className = '', hover = false, onClick, padding
       className={[
         'bg-[var(--card)] border border-[var(--border)] rounded-2xl',
         paddingStyles[padding],
-        hover ? 'hover:border-[var(--border-strong)] hover:bg-[var(--surface-light)] transition-all duration-200 cursor-pointer' : '',
+        hover ? 'hover:border-[var(--border-strong)] hover:bg-[var(--surface-light)] transition duration-200 cursor-pointer' : '',
         onClick ? 'cursor-pointer' : '',
         className,
       ].join(' ')}

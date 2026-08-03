@@ -432,6 +432,10 @@ export default function SettingsPage() {
               className="text-[10px] text-[#349f2d] hover:text-[#5ecf4f] transition-colors">
               Built by {DEVELOPER_CREDIT.domain}
             </a>
+            <a href={`tel:${DEVELOPER_CREDIT.phoneE164}`}
+              className="block text-[10px] text-[#aba8a4] hover:text-[#f4efeb] transition-colors">
+              {DEVELOPER_CREDIT.phoneDisplay}
+            </a>
           </div>
         </div>
       </Card>

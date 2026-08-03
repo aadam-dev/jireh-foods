@@ -2,6 +2,10 @@
 import type { NextAuthConfig } from 'next-auth';
 
 export const authConfig: NextAuthConfig = {
+  /* Must match src/lib/auth.ts. The middleware builds its own NextAuth
+     instance from this config, so setting trustHost only on the server config
+     leaves every middleware-handled request failing with UntrustedHost. */
+  trustHost: true,
   pages: {
     signIn: '/login',
     error: '/login',

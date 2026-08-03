@@ -173,7 +173,7 @@ export default function PurchasingPage() {
           const labels = ['All Orders', 'Drafts', 'Confirmed', 'Pending Receipt'];
           return (
             <button key={i} onClick={() => setStatusFilter(s)}
-              className={`bg-[#191c19] border rounded-2xl p-4 text-left transition-all ${statusFilter === s ? 'border-[#349f2d]/50' : 'border-[#2b2f2b] hover:border-[#404540]'}`}>
+              className={`bg-[#191c19] border rounded-2xl p-4 text-left transition ${statusFilter === s ? 'border-[#349f2d]/50' : 'border-[#2b2f2b] hover:border-[#404540]'}`}>
               <p className="text-xs text-[#aba8a4]">{labels[i]}</p>
               <p className="text-2xl font-bold text-[#f4efeb] mt-1">{count}</p>
             </button>

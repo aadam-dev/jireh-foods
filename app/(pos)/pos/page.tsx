@@ -13,7 +13,7 @@ import Image from 'next/image';
 import { formatCurrency, formatTime } from '@/src/lib/utils';
 import { enqueueOrder, getPendingOrders, syncPendingOrders } from '@/src/lib/offlineQueue';
 import { classifyRegisterSession } from '@/src/lib/session-utils';
-import { DEVELOPER_CREDIT } from '@/src/lib/developer-credit';
+import { DEVELOPER_CREDIT, RECEIPT_CREDIT_LINES } from '@/src/lib/developer-credit';
 
 /* ─── Types ─────────────────────────────────────────────────────────── */
 interface ChosenModifier { optionId: string; groupName: string; name: string; priceDelta: number }
@@ -103,7 +103,7 @@ function Numpad({ value, onChange }: { value: string; onChange: (v: string) => v
     <div className="grid grid-cols-3 gap-1.5">
       {keys.map(k => (
         <button key={k} onClick={() => press(k)}
-          className="py-3 rounded-xl bg-[#191c19] border border-[#2b2f2b] text-[#f4efeb] font-semibold text-lg hover:bg-[#232623] active:scale-95 transition-all">
+          className="py-3 rounded-xl bg-[#191c19] border border-[#2b2f2b] text-[#f4efeb] font-semibold text-lg hover:bg-[#232623] active:scale-95 transition">
           {k}
         </button>
       ))}
@@ -190,7 +190,7 @@ function ModifierSheet({
                     <button
                       key={option.id}
                       onClick={() => toggle(group, option.id)}
-                      className={`min-h-[56px] rounded-xl border px-3 py-2 text-left transition-all active:scale-[0.97] ${
+                      className={`min-h-[56px] rounded-xl border px-3 py-2 text-left transition active:scale-[0.97] ${
                         on
                           ? 'border-[#349f2d]/60 bg-[#349f2d]/20'
                           : 'border-[#2b2f2b] bg-[#111311] hover:border-[#404540]'
@@ -458,7 +458,7 @@ function Receipt80mm({
           for why it stays this small. */}
       {DEVELOPER_CREDIT.enabled && (
         <div className={`${dash} mt-2 pt-1 text-center text-[8px] text-gray-500`}>
-          <div>{DEVELOPER_CREDIT.receiptLine}</div>
+          {RECEIPT_CREDIT_LINES.map(line => <div key={line}>{line}</div>)}
         </div>
       )}
     </div>
@@ -1027,6 +1027,7 @@ export default function POSPage() {
   /* ─── Post-order success / print screen ─────────────────────────── */
   if (lastOrder) {
     const isOfflineOrder = !!lastOrder._offline;
+    const isUnpaidTicket = lastOrder.paymentMethod === 'UNPAID' || lastOrder.paymentStatus === 'PENDING';
     return (
       <div className="h-screen bg-[#111311] flex items-center justify-center p-4">
         {/* screen-only success UI — hidden when printing so only the receipt shows */}
@@ -1053,7 +1054,17 @@ export default function POSPage() {
             </>
           ) : (
             <>
-              <h2 className="text-xl font-bold text-[#f4efeb] font-serif mb-1">Order Complete!</h2>
+              {/* An unpaid ticket has been cooked, not paid for. Saying
+                  "Order Complete" there invites a cashier to let the customer
+                  walk without collecting. */}
+              <h2 className="text-xl font-bold text-[#f4efeb] font-serif mb-1">
+                {isUnpaidTicket ? 'Sent to Kitchen' : 'Order Complete!'}
+              </h2>
+              {isUnpaidTicket && (
+                <p className="mb-2 text-sm text-yellow-400">
+                  Not paid yet — settle it from the tickets rail before they leave.
+                </p>
+              )}
               {isItAdmin && (
                 <span className="inline-block mb-2 px-2.5 py-0.5 rounded-full bg-amber-400/15 border border-amber-400/40 text-amber-400 text-[10px] font-bold tracking-wide">
                   DEMO — not counted in sales
@@ -1202,11 +1213,11 @@ export default function POSPage() {
         </div>
         <div className="flex items-center gap-1.5">
           {isAdminRole && (
-            <Link href="/admin" className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-medium text-[#aba8a4] border border-[#2b2f2b] hover:border-[#404540] hover:text-[#f4efeb] transition-all">
+            <Link href="/admin" className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-medium text-[#aba8a4] border border-[#2b2f2b] hover:border-[#404540] hover:text-[#f4efeb] transition">
               <LayoutDashboard size={12}/> Admin Panel
             </Link>
           )}
-          <button onClick={() => signOut({ callbackUrl: '/login' })} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs text-[#aba8a4] border border-[#2b2f2b] hover:text-red-400 hover:border-red-500/40 transition-all">
+          <button onClick={() => signOut({ callbackUrl: '/login' })} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs text-[#aba8a4] border border-[#2b2f2b] hover:text-red-400 hover:border-red-500/40 transition">
             <LogOut size={12}/>
           </button>
         </div>
@@ -1240,7 +1251,7 @@ export default function POSPage() {
             <p className="text-xs text-[#aba8a4] mt-1">{sessionStats.revenue > 0 ? `${formatCurrency(sessionStats.revenue)} in sales so far` : 'No sales recorded yet'}</p>
           </div>
           <button onClick={activateRegister}
-            className="w-full bg-[#349f2d] hover:bg-[#287e22] text-white rounded-2xl py-3.5 font-bold text-sm transition-all active:scale-[0.98]">
+            className="w-full bg-[#349f2d] hover:bg-[#287e22] text-white rounded-2xl py-3.5 font-bold text-sm transition active:scale-[0.98]">
             Continue Selling
           </button>
           <button onClick={() => setView('session')}
@@ -1264,7 +1275,7 @@ export default function POSPage() {
             </p>
           </div>
           <button onClick={activateRegister}
-            className="w-full bg-[#349f2d] hover:bg-[#287e22] text-white rounded-2xl py-3.5 font-bold text-sm transition-all">
+            className="w-full bg-[#349f2d] hover:bg-[#287e22] text-white rounded-2xl py-3.5 font-bold text-sm transition">
             Continue on Existing Shift
           </button>
           {canManageStale ? (
@@ -1300,7 +1311,7 @@ export default function POSPage() {
           <Numpad value={openingFloatStr} onChange={setOpeningFloatStr}/>
         </div>
         <button onClick={() => openSession()} disabled={sessionLoading}
-          className="w-full bg-[#349f2d] hover:bg-[#287e22] disabled:opacity-40 text-white rounded-2xl py-3.5 font-bold text-sm transition-all active:scale-[0.98] shadow-[0_0_20px_rgba(52,159,45,0.3)]">
+          className="w-full bg-[#349f2d] hover:bg-[#287e22] disabled:opacity-40 text-white rounded-2xl py-3.5 font-bold text-sm transition active:scale-[0.98] shadow-[0_0_20px_rgba(52,159,45,0.3)]">
           {sessionLoading ? 'Opening…' : 'Open Shift & Start Selling'}
         </button>
       </div>
@@ -1312,7 +1323,7 @@ export default function POSPage() {
     return (
       <div className="h-screen bg-[#111311] flex flex-col overflow-hidden">
         <header className="shrink-0 flex items-center gap-3 px-4 py-3 bg-[#0a0b0a] border-b border-[#2b2f2b]">
-          <button onClick={() => setView('register')} className="p-2 rounded-xl text-[#aba8a4] hover:text-[#f4efeb] border border-[#2b2f2b] hover:border-[#404540] transition-all">
+          <button onClick={() => setView('register')} className="p-2 rounded-xl text-[#aba8a4] hover:text-[#f4efeb] border border-[#2b2f2b] hover:border-[#404540] transition">
             <X size={16}/>
           </button>
           <span className="text-sm font-semibold text-[#f4efeb]">Payment — {formatCurrency(total)}</span>
@@ -1354,7 +1365,7 @@ export default function POSPage() {
                 const active = !isSplit && paymentMethod === pm.id;
                 return (
                   <button key={pm.id} onClick={() => { setIsSplit(false); setPaymentMethod(pm.id); }}
-                    className={`flex flex-col items-center gap-1.5 py-3 rounded-xl text-xs font-medium transition-all border ${active ? 'bg-[#349f2d]/20 text-[#5ecf4f] border-[#349f2d]/40' : 'text-[#aba8a4] border-[#2b2f2b] hover:border-[#404540]'}`}>
+                    className={`flex flex-col items-center gap-1.5 py-3 rounded-xl text-xs font-medium transition border ${active ? 'bg-[#349f2d]/20 text-[#5ecf4f] border-[#349f2d]/40' : 'text-[#aba8a4] border-[#2b2f2b] hover:border-[#404540]'}`}>
                     <Icon size={18}/>{pm.label}
                   </button>
                 );
@@ -1362,7 +1373,7 @@ export default function POSPage() {
             </div>
             {/* Split toggle */}
             <button onClick={() => setIsSplit(s => !s)}
-              className={`flex flex-col items-center justify-center gap-1 px-3 rounded-xl text-[10px] font-bold transition-all border shrink-0 ${isSplit ? 'bg-purple-500/20 text-purple-300 border-purple-500/40' : 'text-[#aba8a4] border-[#2b2f2b] hover:border-[#404540]'}`}>
+              className={`flex flex-col items-center justify-center gap-1 px-3 rounded-xl text-[10px] font-bold transition border shrink-0 ${isSplit ? 'bg-purple-500/20 text-purple-300 border-purple-500/40' : 'text-[#aba8a4] border-[#2b2f2b] hover:border-[#404540]'}`}>
               <span className="text-base leading-none">⊕</span>Split
             </button>
           </div>
@@ -1438,7 +1449,7 @@ export default function POSPage() {
                     </span>
                   </div>
                   <div className="h-1.5 bg-[#2b2f2b] rounded-full overflow-hidden">
-                    <div className="h-full bg-[#5ecf4f] transition-all rounded-full" style={{ width: `${Math.min(100, (splitSum / total) * 100)}%` }}/>
+                    <div className="h-full bg-[#5ecf4f] transition-[width] duration-300 rounded-full" style={{ width: `${Math.min(100, (splitSum / total) * 100)}%` }}/>
                   </div>
                 </div>
 
@@ -1446,7 +1457,7 @@ export default function POSPage() {
                 <div className="grid grid-cols-3 gap-1.5">
                   {legs.map(leg => (
                     <button key={leg.id} onClick={() => setSplitActiveLeg(leg.id)}
-                      className={`flex flex-col items-center gap-0.5 py-2.5 rounded-xl border text-xs font-medium transition-all ${splitActiveLeg === leg.id ? 'bg-purple-500/20 border-purple-400/40 text-purple-200' : leg.amt > 0 ? 'bg-[#191c19] border-[#349f2d]/30 text-[#5ecf4f]' : 'border-[#2b2f2b] text-[#aba8a4]'}`}>
+                      className={`flex flex-col items-center gap-0.5 py-2.5 rounded-xl border text-xs font-medium transition ${splitActiveLeg === leg.id ? 'bg-purple-500/20 border-purple-400/40 text-purple-200' : leg.amt > 0 ? 'bg-[#191c19] border-[#349f2d]/30 text-[#5ecf4f]' : 'border-[#2b2f2b] text-[#aba8a4]'}`}>
                       <span className="text-base leading-none">{leg.icon}</span>
                       <span>{leg.label}</span>
                       {leg.amt > 0 && <span className="font-bold">{formatCurrency(leg.amt)}</span>}
@@ -1492,7 +1503,7 @@ export default function POSPage() {
 
         <div className="shrink-0 p-4 border-t border-[#2b2f2b] bg-[#0a0b0a]">
           <button onClick={() => placeOrder()} disabled={!canCharge || placing}
-            className="w-full bg-[#349f2d] hover:bg-[#287e22] disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-2xl py-4 font-bold text-base transition-all active:scale-[0.98] shadow-[0_0_20px_rgba(52,159,45,0.3)]">
+            className="w-full bg-[#349f2d] hover:bg-[#287e22] disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-2xl py-4 font-bold text-base transition active:scale-[0.98] shadow-[0_0_20px_rgba(52,159,45,0.3)]">
             {placing ? 'Processing…' : `Confirm Payment — ${formatCurrency(total)}`}
           </button>
         </div>
@@ -1506,7 +1517,7 @@ export default function POSPage() {
     return (
       <div className="h-screen bg-[#111311] flex flex-col overflow-hidden">
         <header className="shrink-0 flex items-center gap-3 px-4 py-3 bg-[#0a0b0a] border-b border-[#2b2f2b]">
-          <button onClick={() => setView('register')} className="p-2 rounded-xl text-[#aba8a4] hover:text-[#f4efeb] border border-[#2b2f2b] transition-all">
+          <button onClick={() => setView('register')} className="p-2 rounded-xl text-[#aba8a4] hover:text-[#f4efeb] border border-[#2b2f2b] transition">
             <X size={16}/>
           </button>
           <span className="text-sm font-semibold text-[#f4efeb]">Shift / Session</span>
@@ -1659,7 +1670,7 @@ export default function POSPage() {
     return (
       <div className="h-screen bg-[#111311] flex flex-col overflow-hidden">
         <header className="shrink-0 flex items-center gap-3 px-4 py-3 bg-[#0a0b0a] border-b border-[#2b2f2b]">
-          <button onClick={() => setView('register')} className="p-2 rounded-xl text-[#aba8a4] hover:text-[#f4efeb] border border-[#2b2f2b] transition-all">
+          <button onClick={() => setView('register')} className="p-2 rounded-xl text-[#aba8a4] hover:text-[#f4efeb] border border-[#2b2f2b] transition">
             <X size={16}/>
           </button>
           <span className="text-sm font-semibold text-[#f4efeb]">Today&apos;s Orders ({todayOrders.length})</span>
@@ -1744,20 +1755,20 @@ export default function POSPage() {
           <HeaderClock />
           {/* Session pill — hidden on mobile (shift is in bottom nav) */}
           <button onClick={() => setView('session')}
-            className={`hidden md:flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-medium border transition-all ${posSession ? 'bg-[#349f2d]/20 text-[#5ecf4f] border-[#349f2d]/40' : 'text-[#aba8a4] border-[#2b2f2b] hover:border-[#404540]'}`}>
+            className={`hidden md:flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-medium border transition ${posSession ? 'bg-[#349f2d]/20 text-[#5ecf4f] border-[#349f2d]/40' : 'text-[#aba8a4] border-[#2b2f2b] hover:border-[#404540]'}`}>
             {posSession ? <><Unlock size={12}/> Shift Open</> : <><Lock size={12}/> No Shift</>}
           </button>
           {/* Orders — hidden on mobile (orders is in bottom nav) */}
           <button onClick={() => { setView('orders'); fetchOrders(); }}
-            className="hidden md:flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-medium text-[#aba8a4] border border-[#2b2f2b] hover:border-[#404540] transition-all">
+            className="hidden md:flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-medium text-[#aba8a4] border border-[#2b2f2b] hover:border-[#404540] transition">
             <Clock size={12}/> Orders
           </button>
           {user && ['OWNER', 'MANAGER'].includes(user.role) && (
-            <Link href="/admin" className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-medium text-[#aba8a4] border border-[#2b2f2b] hover:border-[#404540] transition-all">
+            <Link href="/admin" className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-medium text-[#aba8a4] border border-[#2b2f2b] hover:border-[#404540] transition">
               <LayoutDashboard size={12}/> <span className="hidden sm:inline">Admin</span>
             </Link>
           )}
-          <button onClick={() => signOut({ callbackUrl: '/login' })} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs text-[#aba8a4] border border-[#2b2f2b] hover:text-red-400 hover:border-red-500/40 transition-all">
+          <button onClick={() => signOut({ callbackUrl: '/login' })} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs text-[#aba8a4] border border-[#2b2f2b] hover:text-red-400 hover:border-red-500/40 transition">
             <LogOut size={12}/>
           </button>
         </div>
@@ -1799,7 +1810,7 @@ export default function POSPage() {
               <div className="flex gap-1.5 overflow-x-auto pb-2 scrollbar-none">
                 {categories.map(cat => (
                   <button key={cat.id} onClick={() => setActiveCat(cat.id)}
-                    className={`shrink-0 px-4 py-2 rounded-xl text-sm font-semibold transition-all border ${cat.id === activeCat ? 'bg-[#349f2d]/20 text-[#5ecf4f] border-[#349f2d]/40' : 'text-[#aba8a4] border-[#2b2f2b] hover:border-[#404540] hover:text-[#f4efeb]'}`}>
+                    className={`shrink-0 px-4 py-2 rounded-xl text-sm font-semibold transition border ${cat.id === activeCat ? 'bg-[#349f2d]/20 text-[#5ecf4f] border-[#349f2d]/40' : 'text-[#aba8a4] border-[#2b2f2b] hover:border-[#404540] hover:text-[#f4efeb]'}`}>
                     {cat.name} <span className="opacity-50">({cat.items.length})</span>
                   </button>
                 ))}
@@ -1831,7 +1842,7 @@ export default function POSPage() {
                     onPointerLeave={cancelLongPress}
                     onContextMenu={e => { e.preventDefault(); setEightySixTarget(item); }}
                     aria-label={off ? `${item.name} — unavailable, tap to put back on` : item.name}
-                    className={`relative text-left rounded-2xl overflow-hidden border transition-all active:scale-[0.97] select-none ${
+                    className={`relative text-left rounded-2xl overflow-hidden border transition active:scale-[0.97] select-none ${
                       off
                         ? 'bg-[#141714] border-[#2b2f2b] opacity-45'
                         : inCart
@@ -1989,7 +2000,7 @@ export default function POSPage() {
             <div className="flex gap-1.5">
               {DELIVERY_TYPES.map(dt => (
                 <button key={dt.id} onClick={() => setDeliveryType(dt.id)}
-                  className={`flex-1 py-2.5 rounded-xl text-sm font-semibold transition-all border active:scale-95 ${deliveryType === dt.id ? 'bg-[#349f2d]/20 text-[#5ecf4f] border-[#349f2d]/40' : 'text-[#aba8a4] border-[#2b2f2b] hover:border-[#404540]'}`}>
+                  className={`flex-1 py-2.5 rounded-xl text-sm font-semibold transition border active:scale-95 ${deliveryType === dt.id ? 'bg-[#349f2d]/20 text-[#5ecf4f] border-[#349f2d]/40' : 'text-[#aba8a4] border-[#2b2f2b] hover:border-[#404540]'}`}>
                   {dt.label}
                 </button>
               ))}
@@ -2000,7 +2011,7 @@ export default function POSPage() {
               <span className="text-2xl font-black text-[#5ecf4f] tabular-nums">{formatCurrency(total)}</span>
             </div>
             <button onClick={goToPayment} disabled={cart.length === 0}
-              className="w-full bg-[#349f2d] hover:bg-[#287e22] disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-2xl py-5 font-bold text-base transition-all active:scale-[0.98] shadow-[0_0_24px_rgba(52,159,45,0.4)]">
+              className="w-full bg-[#349f2d] hover:bg-[#287e22] disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-2xl py-5 font-bold text-base transition active:scale-[0.98] shadow-[0_0_24px_rgba(52,159,45,0.4)]">
               <Receipt size={14} className="inline mr-1.5 -mt-0.5"/>
               Charge {cart.length > 0 ? formatCurrency(total) : ''}
             </button>

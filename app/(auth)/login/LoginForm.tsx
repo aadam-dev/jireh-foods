@@ -157,6 +157,13 @@ export default function LoginForm() {
             >
               {DEVELOPER_CREDIT.domain}
             </a>
+            {' · '}
+            <a
+              href={`tel:${DEVELOPER_CREDIT.phoneE164}`}
+              className="underline underline-offset-2 transition-colors hover:text-[#aba8a4]/70"
+            >
+              {DEVELOPER_CREDIT.phoneDisplay}
+            </a>
           </p>
         </div>
       </div>

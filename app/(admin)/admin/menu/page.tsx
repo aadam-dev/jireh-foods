@@ -246,7 +246,7 @@ export default function MenuPage() {
                 key={cat.id}
                 onClick={() => setActiveCategory(cat.id)}
                 className={[
-                  'shrink-0 md:w-full text-left px-3 py-2 md:py-2.5 rounded-xl text-sm transition-all flex items-center gap-2 whitespace-nowrap',
+                  'shrink-0 md:w-full text-left px-3 py-2 md:py-2.5 rounded-xl text-sm transition flex items-center gap-2 whitespace-nowrap',
                   cat.id === activeCategory
                     ? 'bg-[#349f2d]/20 text-[#5ecf4f] border border-[#349f2d]/40'
                     : 'text-[#aba8a4] hover:text-[#f4efeb] hover:bg-white/5 border border-[#2b2f2b]',
@@ -295,7 +295,7 @@ export default function MenuPage() {
                     {activeCat.items.map((item: any) => (
                       <div
                         key={item.id}
-                        className="group relative flex flex-col rounded-2xl border border-[#2b2f2b] bg-[#111311] overflow-hidden hover:border-[#404540] transition-all duration-200"
+                        className="group relative flex flex-col rounded-2xl border border-[#2b2f2b] bg-[#111311] overflow-hidden hover:border-[#404540] transition duration-200"
                       >
                         {/* Image area */}
                         <div className="relative aspect-[4/3] bg-[#0a0b0a] overflow-hidden">

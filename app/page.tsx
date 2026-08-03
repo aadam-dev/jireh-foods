@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Image from "next/image";
 import { SectionReveal } from "./components/SectionReveal";
 import { HeroBackground } from "./components/HeroBackground";
 import { JirehLogo } from "./components/JirehLogo";
@@ -398,13 +399,13 @@ export default function Home() {
             <div className="relative grid items-center gap-8 md:grid-cols-[0.85fr_1.15fr] md:gap-12">
               <div className="relative mx-auto w-full max-w-xs md:max-w-none">
                 <div className="overflow-hidden rounded-[1.5rem] border border-[#e0b354]/25 bg-[var(--surface-dark)] shadow-[var(--shadow-dark)]">
-                  <img
+                  <Image
                     src={AWARD.image}
                     alt={`Jireh Natural Foods trophy — ${AWARD.title}, ${AWARD.presenter}`}
-                    className="h-full w-full object-cover"
                     width={1050}
                     height={1400}
-                    loading="lazy"
+                    sizes="(max-width: 768px) 80vw, 380px"
+                    className="h-full w-full object-cover"
                   />
                 </div>
               </div>
@@ -465,7 +466,7 @@ export default function Home() {
               </p>
             </div>
             <div className="relative overflow-hidden rounded-[20px] shadow-[var(--shadow-dark)] ring-1 ring-white/10 group">
-              <img src="/jireh/hero.jpg" alt="Jireh Natural Foods Kiosk" width={1200} height={800} loading="lazy" decoding="async" className="w-full object-cover h-64 md:h-[400px] transition-transform duration-700 group-hover:scale-105" />
+              <Image src="/jireh/hero.jpg" alt="Jireh Natural Foods Kiosk" width={1200} height={800} sizes="(max-width: 768px) 100vw, 640px" className="w-full object-cover h-64 md:h-[400px] transition-transform duration-700 group-hover:scale-105" />
               <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent pointer-events-none" />
             </div>
           </div>
@@ -492,16 +493,15 @@ export default function Home() {
             {FEATURED_ITEMS.map((item) => (
               <article
                 key={item.name}
-                className="group rounded-3xl border border-white/5 bg-[var(--card)] p-3 shadow-[var(--shadow-soft)] transition-all hover:-translate-y-1 hover:shadow-[var(--shadow-dark)]"
+                className="group rounded-3xl border border-white/5 bg-[var(--card)] p-3 shadow-[var(--shadow-soft)] transition hover:-translate-y-1 hover:shadow-[var(--shadow-dark)]"
               >
                 <div className="mb-4 overflow-hidden rounded-2xl relative">
-                  <img
+                  <Image
                     src={item.image}
                     alt={item.name}
                     width={600}
                     height={450}
-                    loading="lazy"
-                    decoding="async"
+                    sizes="(max-width: 768px) 100vw, 360px"
                     className="h-48 w-full object-cover transition duration-700 group-hover:scale-110"
                   />
                   <div className="absolute inset-0 bg-black/20 group-hover:bg-black/10 transition-colors" />
@@ -541,13 +541,12 @@ export default function Home() {
                 key={item.src}
                 className="overflow-hidden rounded-2xl border border-white/5 bg-[var(--card)] shadow-[var(--shadow-soft)]"
               >
-                <img
+                <Image
                   src={item.src}
                   alt={item.alt}
                   width={480}
                   height={360}
-                  loading="lazy"
-                  decoding="async"
+                  sizes="(max-width: 768px) 50vw, 280px"
                   className="h-36 w-full object-cover transition duration-500 hover:scale-105 md:h-52"
                 />
               </div>
