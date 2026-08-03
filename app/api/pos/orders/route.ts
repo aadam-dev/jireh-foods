@@ -6,6 +6,7 @@ import { generateOrderNumber } from '@/src/lib/utils';
 import { getTaxRate, isInventoryTrackingEnabled } from '@/src/lib/settings';
 import { logAudit } from '@/src/lib/audit';
 import { buildTransactionSnapshot, recordOrderEvent } from '@/src/lib/order-events';
+import { computeOrderTotals, sumMoney, lineTotal, changeDue, moneyEquals } from '@/src/lib/money';
 
 const orderItemSchema = z.object({
   menuItemId: z.string(),
@@ -164,19 +165,23 @@ export async function POST(req: NextRequest) {
     };
   });
 
-  const subtotal = verifiedItems.reduce((s, i) => s + i.price * i.quantity, 0);
-  const discountAmount = Math.min(data.discountAmount ?? 0, subtotal); // cap at subtotal
-  if ((data.discountAmount ?? 0) > subtotal) {
+  // Ghana Composite Levy — rate pulled from Settings table (set via /admin/settings)
+  const taxRate = await getTaxRate();
+  const preDiscountSubtotal = sumMoney(verifiedItems.map(i => lineTotal(i.price, i.quantity)));
+  if ((data.discountAmount ?? 0) > preDiscountSubtotal) {
     return NextResponse.json(
       { error: 'Discount cannot exceed the order subtotal' },
       { status: 400 }
     );
   }
-  const taxableAmount = subtotal - discountAmount;
-  // Ghana Composite Levy — rate pulled from Settings table (set via /admin/settings)
-  const taxRate = await getTaxRate();
-  const taxAmount = taxableAmount * taxRate;
-  const total = taxableAmount + taxAmount;
+  /* One definition of the bill, shared with the register — see src/lib/money.ts.
+     Every step rounds to whole pesewas so change owed and split-payment checks
+     never disagree with what the customer was shown. */
+  const { subtotal, discountAmount, taxableAmount, taxAmount, total } = computeOrderTotals({
+    lines: verifiedItems.map(i => ({ price: i.price, quantity: i.quantity })),
+    discountAmount: data.discountAmount ?? 0,
+    taxRate,
+  });
 
   // ── Split payment validation ─────────────────────────────────────────
   if (data.paymentMethod === 'SPLIT') {
@@ -247,7 +252,7 @@ export async function POST(req: NextRequest) {
             name: item.name,
             price: item.price,
             quantity: item.quantity,
-            subtotal: item.price * item.quantity,
+            subtotal: lineTotal(item.price, item.quantity),
             notes: item.notes,
             modifiers: item.chosenModifiers.length
               ? {

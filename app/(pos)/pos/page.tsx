@@ -13,6 +13,7 @@ import Image from 'next/image';
 import { formatCurrency, formatTime } from '@/src/lib/utils';
 import { enqueueOrder, getPendingOrders, syncPendingOrders } from '@/src/lib/offlineQueue';
 import { classifyRegisterSession } from '@/src/lib/session-utils';
+import { computeOrderTotals, changeDue } from '@/src/lib/money';
 import { DEVELOPER_CREDIT, RECEIPT_CREDIT_LINES } from '@/src/lib/developer-credit';
 
 /* ─── Types ─────────────────────────────────────────────────────────── */
@@ -342,6 +343,7 @@ function Receipt80mm({
   businessAddress = 'Adenta Housing Down, Accra',
   receiptHeader = 'Fresh & Healthy — Always',
   receiptFooter = 'Thank you for your patronage!',
+  preview = false,
 }: {
   order: any;
   session: PosSession | null;
@@ -350,6 +352,8 @@ function Receipt80mm({
   businessAddress?: string;
   receiptHeader?: string;
   receiptFooter?: string;
+  /** Render on screen as paper instead of as the hidden print element. */
+  preview?: boolean;
 }) {
   // Kitchen/pickup "call number" — last numeric block of the order number (e.g. JNF-20260601-1234 → 1234)
   const callNumber = (order.orderNumber?.split('-').pop()) || order.orderNumber;
@@ -362,7 +366,17 @@ function Receipt80mm({
   const dash = 'border-t border-dashed border-black';
 
   return (
-    <div id="receipt-print" className="hidden print:block font-mono text-[11px] leading-tight w-[72mm] mx-auto text-black">
+    /* Two modes, one component, so what the cashier checks on screen is
+       literally the same markup that goes to the printer — a preview built
+       separately would drift from the paper the customer is handed. */
+    <div
+      id={preview ? undefined : 'receipt-print'}
+      className={
+        preview
+          ? 'print:hidden font-mono text-[11px] leading-tight w-[72mm] mx-auto text-black bg-white rounded-lg px-3 py-4 shadow-[0_2px_12px_rgba(0,0,0,0.45)]'
+          : 'hidden print:block font-mono text-[11px] leading-tight w-[72mm] mx-auto text-black'
+      }
+    >
 
       {/* ── Brand header ── */}
       <div className="text-center">
@@ -403,6 +417,13 @@ function Receipt80mm({
                 <span className="pr-2">{item.quantity}× {item.name}</span>
                 <span className="whitespace-nowrap">{formatCurrency(lineTotal)}</span>
               </div>
+              {/* The chosen extras are why the line costs what it costs. Without
+                  them a customer querying the price has nothing to point at. */}
+              {item.modifiers?.length > 0 && (
+                <div className="pl-3 text-[9px] text-gray-700">
+                  {item.modifiers.map((m: any) => m.name).join(' · ')}
+                </div>
+              )}
               {item.quantity > 1 && (
                 <div className="text-[9px] text-gray-600 pl-3">@ {formatCurrency(item.price)} each</div>
               )}
@@ -520,6 +541,8 @@ export default function POSPage() {
   const [closingCashStr, setClosingCashStr] = useState('0');
   const [closingMomoStr, setClosingMomoStr] = useState('0');
   const [closingBoltStr, setClosingBoltStr] = useState('0');
+  /** Levy rate from Settings; 0 unless an owner sets one. */
+  const [taxRate, setTaxRate] = useState(0);
   /** Open tickets — sent to the kitchen, not yet paid. */
   const [openTickets, setOpenTickets] = useState<any[]>([]);
   const [settling, setSettling] = useState<any>(null);
@@ -693,6 +716,8 @@ export default function POSPage() {
           receiptHeader: data.receipt_header || 'Fresh & Healthy — Always',
           receiptFooter: data.receipt_footer || 'Thank you for your patronage!',
         });
+        // Keep the register's arithmetic identical to the server's.
+        setTaxRate(Number(data.tax_rate ?? 0) || 0);
       })
       .catch(() => {});
   }, [authStatus]);
@@ -741,11 +766,16 @@ export default function POSPage() {
     checkoutClientRef.current = null;
   };
 
-  const subtotal = cart.reduce((s, c) => s + c.price * c.quantity, 0);
-  const total = Math.max(0, subtotal - discountAmount);
+  /* Same function the API uses, so the amount on the Charge button is always
+     the amount charged — including any levy set in Settings. */
+  const { subtotal, taxAmount, total } = computeOrderTotals({
+    lines: cart.map(c => ({ price: c.price, quantity: c.quantity })),
+    discountAmount,
+    taxRate,
+  });
   const tendered = parseFloat(tenderedStr) || 0;
   const momoAmount = parseFloat(momoAmountStr) || 0;
-  const change = paymentMethod === 'CASH' ? Math.max(0, tendered - total) : 0;
+  const change = paymentMethod === 'CASH' ? changeDue(tendered, total) : 0;
   // Split totals
   const splitCash = parseFloat(splitCashStr) || 0;
   const splitMomo = parseFloat(splitMomoStr) || 0;
@@ -1078,17 +1108,35 @@ export default function POSPage() {
           {lastOrder.changeAmount > 0 && (
             <p className="text-lg text-yellow-400 mb-4">Change: {formatCurrency(lastOrder.changeAmount)}</p>
           )}
-          <div className="space-y-1 mb-6 text-sm text-[#aba8a4] bg-[#191c19] rounded-2xl p-4">
-            {lastOrder.items?.map((item: any) => (
-              <div key={item.menuItemId ?? item.id} className="flex justify-between">
-                <span>{item.quantity}× {item.name}</span>
-                <span className="text-[#f4efeb]">{formatCurrency(item.subtotal ?? item.price * item.quantity)}</span>
+          {/* The actual receipt, so the cashier can check it before tearing it
+              off. Offline orders have no server-assigned number yet, so they
+              keep the simple list. */}
+          {isOfflineOrder ? (
+            <div className="space-y-1 mb-6 text-sm text-[#aba8a4] bg-[#191c19] rounded-2xl p-4">
+              {lastOrder.items?.map((item: any) => (
+                <div key={item.menuItemId ?? item.id} className="flex justify-between">
+                  <span>{item.quantity}× {item.name}</span>
+                  <span className="text-[#f4efeb]">{formatCurrency(item.subtotal ?? item.price * item.quantity)}</span>
+                </div>
+              ))}
+              <div className="border-t border-[#2b2f2b] pt-2 mt-2 flex justify-between font-semibold text-[#f4efeb]">
+                <span>Total</span><span>{formatCurrency(lastOrder.total)}</span>
               </div>
-            ))}
-            <div className="border-t border-[#2b2f2b] pt-2 mt-2 flex justify-between font-semibold text-[#f4efeb]">
-              <span>Total</span><span>{formatCurrency(lastOrder.total)}</span>
             </div>
-          </div>
+          ) : (
+            <div className="mb-6 max-h-[46vh] overflow-y-auto rounded-lg">
+              <Receipt80mm
+                preview
+                order={lastOrder}
+                session={posSession}
+                businessName={receiptSettings.businessName}
+                businessPhone={receiptSettings.businessPhone}
+                businessAddress={receiptSettings.businessAddress}
+                receiptHeader={receiptSettings.receiptHeader}
+                receiptFooter={receiptSettings.receiptFooter}
+              />
+            </div>
+          )}
           <div className="flex gap-2">
             {!isOfflineOrder && (
               <button onClick={() => window.print()}
@@ -1685,9 +1733,19 @@ export default function POSPage() {
                 <p className="text-xs text-[#aba8a4] mt-0.5 truncate">{order.items?.map((i: any) => `${i.quantity}× ${i.name}`).join(', ')}</p>
                 <p className="text-xs text-[#aba8a4]">{formatTime(order.createdAt)} · {PAYMENT_LABELS[order.paymentMethod] ?? order.paymentMethod}</p>
               </div>
-              <div className="text-right shrink-0">
-                <p className="text-sm font-bold text-[#5ecf4f]">{formatCurrency(order.total)}</p>
-                {order.changeAmount > 0 && <p className="text-xs text-yellow-400">Chg: {formatCurrency(order.changeAmount)}</p>}
+              <div className="flex shrink-0 flex-col items-end gap-2">
+                <div className="text-right">
+                  <p className="text-sm font-bold text-[#5ecf4f]">{formatCurrency(order.total)}</p>
+                  {order.changeAmount > 0 && <p className="text-xs text-yellow-400">Chg: {formatCurrency(order.changeAmount)}</p>}
+                </div>
+                {/* Customers ask for a copy often enough that hunting for it
+                    should not be part of the job. Reopens the same receipt. */}
+                <button
+                  onClick={() => { setLastOrder(order); setView('register'); }}
+                  className="inline-flex min-h-[36px] items-center gap-1.5 rounded-xl border border-[#2b2f2b] px-3 text-xs font-medium text-[#aba8a4] transition-colors hover:border-[#404540] hover:text-[#f4efeb]"
+                >
+                  <Printer size={12} /> Receipt
+                </button>
               </div>
             </div>
           ))}
@@ -2006,9 +2064,25 @@ export default function POSPage() {
               ))}
             </div>
 
-            <div className="flex justify-between items-center bg-[#191c19] rounded-xl px-4 py-3">
-              <span className="text-sm font-semibold text-[#aba8a4] uppercase tracking-wide">Total</span>
-              <span className="text-2xl font-black text-[#5ecf4f] tabular-nums">{formatCurrency(total)}</span>
+            <div className="space-y-1 bg-[#191c19] rounded-xl px-4 py-3">
+              {/* Only shown when an owner has set a levy — otherwise the total
+                  is the subtotal and an extra line is just noise. */}
+              {taxAmount > 0 && (
+                <>
+                  <div className="flex justify-between text-xs text-[#aba8a4]">
+                    <span>Subtotal</span>
+                    <span className="tabular-nums">{formatCurrency(subtotal)}</span>
+                  </div>
+                  <div className="flex justify-between text-xs text-[#aba8a4]">
+                    <span>Levy ({(taxRate * 100).toFixed(1)}%)</span>
+                    <span className="tabular-nums">{formatCurrency(taxAmount)}</span>
+                  </div>
+                </>
+              )}
+              <div className="flex justify-between items-center">
+                <span className="text-sm font-semibold text-[#aba8a4] uppercase tracking-wide">Total</span>
+                <span className="text-2xl font-black text-[#5ecf4f] tabular-nums">{formatCurrency(total)}</span>
+              </div>
             </div>
             <button onClick={goToPayment} disabled={cart.length === 0}
               className="w-full bg-[#349f2d] hover:bg-[#287e22] disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-2xl py-5 font-bold text-base transition active:scale-[0.98] shadow-[0_0_24px_rgba(52,159,45,0.4)]">
