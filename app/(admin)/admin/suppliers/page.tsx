@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import { Plus, Pencil, Phone, Mail, MapPin, X, Save, Truck, Trash2 } from 'lucide-react';
+import { apiGet, apiSend, errorMessage } from '@/src/lib/api-client';
+import { useToast } from '@/src/components/admin/ui/toast';
 
 interface Supplier {
   id: string;
@@ -19,17 +21,24 @@ interface Supplier {
 const emptyForm = () => ({ name: '', contactPerson: '', phone: '', email: '', address: '', notes: '' });
 
 export default function SuppliersPage() {
+  const toast = useToast();
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
   const [formOpen, setFormOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState(emptyForm());
   const [saving, setSaving] = useState(false);
 
   const fetch_ = async () => {
-    const res = await fetch('/api/admin/suppliers');
-    if (res.ok) setSuppliers(await res.json());
-    setLoading(false);
+    try {
+      setSuppliers(await apiGet('/api/admin/suppliers'));
+      setLoadError('');
+    } catch (err) {
+      setLoadError(errorMessage(err, 'Could not load suppliers.'));
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => { fetch_(); }, []);
@@ -47,15 +56,24 @@ export default function SuppliersPage() {
     try {
       const url = editingId ? `/api/admin/suppliers/${editingId}` : '/api/admin/suppliers';
       const method = editingId ? 'PUT' : 'POST';
-      const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(form) });
-      if (res.ok) { setFormOpen(false); await fetch_(); }
+      await apiSend(url, method, form);
+      setFormOpen(false);
+      await fetch_();
+      toast.success(editingId ? 'Supplier updated.' : 'Supplier added.');
+    } catch (err) {
+      toast.error(errorMessage(err, 'Could not save this supplier.'));
     } finally { setSaving(false); }
   };
 
   const deactivate = async (id: string) => {
     if (!confirm('Remove this supplier?')) return;
-    await fetch(`/api/admin/suppliers/${id}`, { method: 'DELETE' });
-    await fetch_();
+    try {
+      await apiSend(`/api/admin/suppliers/${id}`, 'DELETE');
+      await fetch_();
+      toast.success('Supplier removed.');
+    } catch (err) {
+      toast.error(errorMessage(err, 'Could not remove that supplier.'));
+    }
   };
 
   if (loading) return (
@@ -66,6 +84,11 @@ export default function SuppliersPage() {
 
   return (
     <div className="p-4 sm:p-6 max-w-5xl mx-auto space-y-6">
+      {loadError && (
+        <div className="flex items-start gap-3 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3">
+          <span className="text-sm text-red-400">{loadError}</span>
+        </div>
+      )}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-[#f4efeb] font-serif">Suppliers</h1>

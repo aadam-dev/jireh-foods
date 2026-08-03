@@ -3,6 +3,8 @@
 import { useEffect, useState } from 'react';
 import { Plus, X, Save, Package, ChevronDown, ChevronRight, CheckCircle2, Clock, Truck, AlertCircle } from 'lucide-react';
 import { formatCurrency, formatDate } from '@/src/lib/utils';
+import { apiSend, errorMessage } from '@/src/lib/api-client';
+import { useToast } from '@/src/components/admin/ui/toast';
 
 interface InventoryItem { id: string; name: string; unit: string; purchaseUnit?: string; conversionFactor: number }
 interface Supplier { id: string; name: string }
@@ -39,6 +41,7 @@ const STATUS_CONFIG: Record<string, { label: string; color: string; icon: React.
 const emptyPoLine = () => ({ inventoryItemId: '', orderedQty: '', purchaseUnit: '', unitPrice: '' });
 
 export default function PurchasingPage() {
+  const toast = useToast();
   const [pos, setPos] = useState<PO[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
@@ -78,8 +81,13 @@ export default function PurchasingPage() {
 
   // Confirm a draft PO
   const confirmPO = async (id: string) => {
-    await fetch(`/api/admin/purchasing/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'CONFIRMED' }) });
-    await fetchAll();
+    try {
+      await apiSend(`/api/admin/purchasing/${id}`, 'PATCH', { status: 'CONFIRMED' });
+      await fetchAll();
+      toast.success('Purchase order confirmed.');
+    } catch (err) {
+      toast.error(errorMessage(err, 'Could not confirm that order.'));
+    }
   };
 
   // Open receive modal

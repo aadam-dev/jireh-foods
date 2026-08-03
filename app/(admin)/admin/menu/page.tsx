@@ -8,6 +8,8 @@ import { Input, Select, Textarea } from '@/src/components/ui/Input';
 import { Badge } from '@/src/components/ui/Badge';
 import { Modal, ConfirmDialog } from '@/src/components/ui/Modal';
 import { EmptyState } from '@/src/components/ui/EmptyState';
+import { apiGet, apiSend, errorMessage } from '@/src/lib/api-client';
+import { useToast } from '@/src/components/admin/ui/toast';
 import { formatCurrency } from '@/src/lib/utils';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -24,9 +26,58 @@ const itemSchema = z.object({
 });
 type ItemForm = z.infer<typeof itemSchema>;
 
+/* ─── Plate margin chip ──────────────────────────────────────────────────────
+   "This plate sells for GH₵55 and leaves you GH₵33" is the single most useful
+   sentence on a menu screen. Orange below the healthy threshold — the one place
+   the back office shouts. */
+function PlateMargin({ item }: { item: any }) {
+  const e = item.economics as
+    | { cost: number | null; margin: number | null; marginPct: number | null; source: string; needsAttention: boolean }
+    | undefined;
+
+  if (!e || e.cost === null || e.marginPct === null) {
+    return (
+      <div className="flex items-center justify-between gap-2 rounded-lg bg-[#0a0b0a] px-2 py-1.5">
+        <span className="text-[10px] uppercase tracking-wide text-[#aba8a4]">No cost yet</span>
+        <span className="text-[10px] text-[#aba8a4]">Add a recipe to see margin</span>
+      </div>
+    );
+  }
+
+  const pct = Math.round(e.marginPct);
+  const attention = e.needsAttention;
+
+  return (
+    <div
+      className={`flex items-center justify-between gap-2 rounded-lg px-2 py-1.5 border ${
+        attention ? 'bg-orange-400/10 border-orange-400/30' : 'bg-[#0a0b0a] border-[#2b2f2b]'
+      }`}
+      title={
+        e.source === 'recipe'
+          ? 'Cost calculated from this item’s recipe at current ingredient prices'
+          : 'Cost from the manual estimate on this item — add a recipe for the real figure'
+      }
+    >
+      <span className="text-[10px] uppercase tracking-wide text-[#aba8a4]">
+        Costs {formatCurrency(e.cost)}
+        {e.source === 'estimate' && <span className="ml-1 opacity-70">(est.)</span>}
+      </span>
+      <span
+        className={`text-[11px] font-bold tabular-nums ${
+          attention ? 'text-orange-400' : 'text-[#5ecf4f]'
+        }`}
+      >
+        {pct}% · {formatCurrency(e.margin ?? 0)}
+      </span>
+    </div>
+  );
+}
+
 export default function MenuPage() {
+  const toast = useToast();
   const [categories, setCategories] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
   const [itemModal, setItemModal] = useState<{ open: boolean; item?: any; categoryId?: string }>({ open: false });
   const [catModal, setCatModal] = useState<{ open: boolean; cat?: any }>({ open: false });
@@ -45,11 +96,16 @@ export default function MenuPage() {
   });
 
   const fetchMenu = async () => {
-    const res = await fetch('/api/admin/menu');
-    const data = await res.json();
-    setCategories(data);
-    if (!activeCategory && data.length > 0) setActiveCategory(data[0].id);
-    setLoading(false);
+    try {
+      const data = await apiGet<any[]>('/api/admin/menu');
+      setCategories(data);
+      if (!activeCategory && data.length > 0) setActiveCategory(data[0].id);
+      setLoadError('');
+    } catch (err) {
+      setLoadError(errorMessage(err, 'Could not load the menu.'));
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => { fetchMenu(); }, []);
@@ -100,13 +156,12 @@ export default function MenuPage() {
         image: imageUrl || null,
         ...(itemModal.item ? { id: itemModal.item.id } : {}),
       };
-      await fetch('/api/admin/menu', {
-        method: itemModal.item ? 'PATCH' : 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
+      await apiSend('/api/admin/menu', itemModal.item ? 'PATCH' : 'POST', payload);
       await fetchMenu();
       setItemModal({ open: false });
+      toast.success(itemModal.item ? 'Item updated.' : 'Item added.');
+    } catch (err) {
+      toast.error(errorMessage(err, 'Could not save this item.'));
     } finally {
       setSaving(false);
     }
@@ -119,39 +174,53 @@ export default function MenuPage() {
       const payload = catModal.cat
         ? { id: catModal.cat.id, type: 'category', name: catName }
         : { type: 'category', name: catName };
-      await fetch('/api/admin/menu', {
-        method: catModal.cat ? 'PATCH' : 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
+      await apiSend('/api/admin/menu', catModal.cat ? 'PATCH' : 'POST', payload);
       await fetchMenu();
       setCatModal({ open: false });
       setCatName('');
+      toast.success('Category saved.');
+    } catch (err) {
+      toast.error(errorMessage(err, 'Could not save that category.'));
     } finally {
       setSaving(false);
     }
   };
 
   const toggleItem = async (id: string, field: string, value: boolean) => {
-    await fetch('/api/admin/menu', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id, type: 'item', [field]: !value }),
-    });
-    await fetchMenu();
+    // Availability drives the register and the public site. A silent failure
+    // here means staff believe a dish is 86'd while it is still selling.
+    try {
+      await apiSend('/api/admin/menu', 'PATCH', { id, type: 'item', [field]: !value });
+      await fetchMenu();
+      if (field === 'isAvailable') {
+        toast.success(value ? 'Item taken off the menu.' : 'Item is back on the menu.');
+      }
+    } catch (err) {
+      toast.error(errorMessage(err, 'Could not change that item.'));
+    }
   };
 
   const handleDelete = async () => {
     if (!deleteDialog.id) return;
-    await fetch(`/api/admin/menu?id=${deleteDialog.id}&type=${deleteDialog.type}`, { method: 'DELETE' });
-    await fetchMenu();
-    setDeleteDialog({ open: false });
+    try {
+      await apiSend(`/api/admin/menu?id=${deleteDialog.id}&type=${deleteDialog.type}`, 'DELETE');
+      await fetchMenu();
+      setDeleteDialog({ open: false });
+      toast.success('Deleted.');
+    } catch (err) {
+      toast.error(errorMessage(err, 'Could not delete that.'));
+    }
   };
 
   const activeCat = categories.find(c => c.id === activeCategory);
 
   return (
     <div className="p-4 sm:p-6 max-w-7xl mx-auto space-y-5">
+      {loadError && (
+        <div className="flex items-start gap-3 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3">
+          <span className="text-sm text-red-400">{loadError}</span>
+        </div>
+      )}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-[#f4efeb] font-serif">Menu</h1>
@@ -281,6 +350,11 @@ export default function MenuPage() {
                               <p className="text-[11px] text-[#aba8a4] mt-0.5 line-clamp-2 leading-snug">{item.description}</p>
                             )}
                           </div>
+
+                          {/* Plate economics — the highest-value number on this
+                              screen. Cost from the recipe when there is one,
+                              otherwise the manual estimate, always labelled. */}
+                          <PlateMargin item={item} />
 
                           <div className="flex items-center justify-between pt-1 border-t border-[#2b2f2b]">
                             <p className="text-sm font-bold text-[#5ecf4f] tabular-nums">{formatCurrency(item.price)}</p>

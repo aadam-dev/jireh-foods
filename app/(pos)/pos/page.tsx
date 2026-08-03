@@ -13,10 +13,40 @@ import Image from 'next/image';
 import { formatCurrency, formatTime } from '@/src/lib/utils';
 import { enqueueOrder, getPendingOrders, syncPendingOrders } from '@/src/lib/offlineQueue';
 import { classifyRegisterSession } from '@/src/lib/session-utils';
+import { DEVELOPER_CREDIT } from '@/src/lib/developer-credit';
 
 /* ─── Types ─────────────────────────────────────────────────────────── */
-interface CartItem { menuItemId: string; name: string; price: number; quantity: number; notes?: string }
-interface MenuCategory { id: string; name: string; items: { id: string; name: string; price: number; description?: string; isPopular: boolean; image?: string | null }[] }
+interface ChosenModifier { optionId: string; groupName: string; name: string; priceDelta: number }
+/* One cart line. Keyed by lineId, not menuItemId: the same dish ordered two
+   ways ("Jollof, grilled" and "Jollof, fried") has to stay two lines. */
+interface CartItem {
+  lineId: string;
+  menuItemId: string;
+  name: string;
+  /** Menu price before extras — kept so the sheet can re-price on edit. */
+  basePrice: number;
+  /** basePrice + the chosen deltas; this is what the line charges. */
+  price: number;
+  quantity: number;
+  notes?: string;
+  modifiers: ChosenModifier[];
+}
+interface ModifierOption { id: string; name: string; priceDelta: number }
+interface ModifierGroup {
+  id: string; name: string; selection: 'SINGLE' | 'MULTI';
+  isRequired: boolean; options: ModifierOption[];
+}
+interface MenuItem {
+  id: string; name: string; price: number; description?: string;
+  isPopular: boolean; image?: string | null; isAvailable: boolean;
+  modifierGroups?: ModifierGroup[];
+}
+interface MenuCategory { id: string; name: string; items: MenuItem[] }
+
+/** Same dish + same choices = same line. Sorted so order of tapping is irrelevant. */
+function cartLineId(menuItemId: string, optionIds: string[]) {
+  return optionIds.length ? `${menuItemId}|${[...optionIds].sort().join(',')}` : menuItemId;
+}
 interface PosSession { id: string; openedByUser: { id?: string; name: string }; openedAt: string; openingFloat: number; status: string }
 interface SessionStats { revenue: number; cashRevenue: number; momoRevenue: number; boltRevenue: number }
 type RegisterGate = 'checking' | 'continue' | 'stale' | 'open_new' | 'active';
@@ -41,6 +71,25 @@ function cartStorageKey(userId?: string) {
   return userId ? `jireh_pos_cart_${userId}` : 'jireh_pos_cart_pending';
 }
 
+/* ─── Tile artwork ───────────────────────────────────────────────────
+   Items without a photo (meat pie, buns, millet, brukina…) used to render a
+   30%-opacity plate emoji on a short tile — invisible during a rush and it
+   made the grid ragged. Give every photo-less item a solid, colour-coded
+   glyph tile at the same height as a photo so staff can still tap by sight. */
+const TILE_ART: { match: RegExp; glyph: string; tint: string }[] = [
+  { match: /pie|buns|bread|pastry|cake|doughnut|spring roll/i, glyph: '🥧', tint: '#8a5a1f' },
+  { match: /sobolo|brukina|millet|yoghurt|smoothie|juice|drink|water|malt|soda|coke|fanta|sprite/i, glyph: '🥤', tint: '#1f5a6b' },
+  { match: /jollof|rice|fried rice/i, glyph: '🍚', tint: '#7a4a1a' },
+  { match: /fufu|banku|kenkey|tuo|soup|stew/i, glyph: '🍲', tint: '#6b3f1f' },
+  { match: /chicken|fries|grill|kebab|meat|fish|tilapia/i, glyph: '🍗', tint: '#7a3a2a' },
+];
+
+function tileArt(name: string) {
+  return (
+    TILE_ART.find(a => a.match.test(name)) ?? { glyph: '🍽', tint: '#2b3a2b' }
+  );
+}
+
 /* ─── Numpad Component ───────────────────────────────────────────────── */
 function Numpad({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   const press = (k: string) => {
@@ -60,6 +109,224 @@ function Numpad({ value, onChange }: { value: string; onChange: (v: string) => v
       ))}
     </div>
   );
+}
+
+/* ─── Modifier sheet ─────────────────────────────────────────────────
+   Bottom sheet on tile tap for dishes that have choices. Big targets, one
+   screenful, and a required group blocks Add until it's answered — during a
+   rush the cashier should never have to think about what's missing. */
+function ModifierSheet({
+  item,
+  onCancel,
+  onConfirm,
+}: {
+  item: MenuItem;
+  onCancel: () => void;
+  onConfirm: (mods: ChosenModifier[]) => void;
+}) {
+  const groups = item.modifierGroups ?? [];
+  const [selected, setSelected] = useState<Record<string, string[]>>(() => {
+    // Pre-select the first option of each required single-choice group.
+    const init: Record<string, string[]> = {};
+    for (const g of groups) {
+      if (g.isRequired && g.selection === 'SINGLE' && g.options[0]) init[g.id] = [g.options[0].id];
+    }
+    return init;
+  });
+
+  const toggle = (group: ModifierGroup, optionId: string) => {
+    setSelected(prev => {
+      const current = prev[group.id] ?? [];
+      if (group.selection === 'SINGLE') {
+        // Tapping the chosen option again clears it, unless the group is required.
+        if (current[0] === optionId) return group.isRequired ? prev : { ...prev, [group.id]: [] };
+        return { ...prev, [group.id]: [optionId] };
+      }
+      return {
+        ...prev,
+        [group.id]: current.includes(optionId)
+          ? current.filter(id => id !== optionId)
+          : [...current, optionId],
+      };
+    });
+  };
+
+  const chosen: ChosenModifier[] = groups.flatMap(g =>
+    (selected[g.id] ?? []).map(id => {
+      const o = g.options.find(x => x.id === id)!;
+      return { optionId: o.id, groupName: g.name, name: o.name, priceDelta: o.priceDelta };
+    }),
+  );
+
+  const missing = groups.filter(g => g.isRequired && (selected[g.id] ?? []).length === 0);
+  const linePrice = item.price + chosen.reduce((s, m) => s + m.priceDelta, 0);
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-end justify-center sm:items-center">
+      <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onCancel} />
+      <div className="relative flex max-h-[88vh] w-full flex-col rounded-t-3xl border-t border-[#2b2f2b] bg-[#191c19] sm:max-w-md sm:rounded-3xl sm:border">
+        <div className="shrink-0 border-b border-[#2b2f2b] px-5 py-4">
+          <p className="text-base font-bold text-[#f4efeb]">{item.name}</p>
+          <p className="mt-0.5 text-xs text-[#aba8a4]">{formatCurrency(item.price)} base</p>
+        </div>
+
+        <div className="flex-1 space-y-5 overflow-y-auto px-5 py-4">
+          {groups.map(group => (
+            <div key={group.id}>
+              <div className="mb-2 flex items-baseline gap-2">
+                <p className="text-sm font-semibold text-[#f4efeb]">{group.name}</p>
+                {group.isRequired ? (
+                  <span className="text-[10px] font-bold uppercase tracking-wide text-yellow-400">Required</span>
+                ) : (
+                  <span className="text-[10px] uppercase tracking-wide text-[#aba8a4]">
+                    {group.selection === 'MULTI' ? 'Choose any' : 'Optional'}
+                  </span>
+                )}
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                {group.options.map(option => {
+                  const on = (selected[group.id] ?? []).includes(option.id);
+                  return (
+                    <button
+                      key={option.id}
+                      onClick={() => toggle(group, option.id)}
+                      className={`min-h-[56px] rounded-xl border px-3 py-2 text-left transition-all active:scale-[0.97] ${
+                        on
+                          ? 'border-[#349f2d]/60 bg-[#349f2d]/20'
+                          : 'border-[#2b2f2b] bg-[#111311] hover:border-[#404540]'
+                      }`}
+                    >
+                      <span className={`block text-sm font-medium ${on ? 'text-[#5ecf4f]' : 'text-[#f4efeb]'}`}>
+                        {option.name}
+                      </span>
+                      {option.priceDelta !== 0 && (
+                        <span className="mt-0.5 block font-mono text-xs text-[#aba8a4]">
+                          {option.priceDelta > 0 ? '+' : '−'}{formatCurrency(Math.abs(option.priceDelta))}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="shrink-0 space-y-2 border-t border-[#2b2f2b] px-5 py-4">
+          <button
+            onClick={() => onConfirm(chosen)}
+            disabled={missing.length > 0}
+            className="w-full min-h-[54px] rounded-2xl bg-[#349f2d] font-bold text-white transition-colors hover:bg-[#287e22] disabled:opacity-40"
+          >
+            {missing.length > 0
+              ? `Choose ${missing[0].name.toLowerCase()}`
+              : `Add · ${formatCurrency(linePrice)}`}
+          </button>
+          <button
+            onClick={onCancel}
+            className="w-full min-h-[46px] rounded-2xl border border-[#2b2f2b] text-sm text-[#aba8a4] transition-colors hover:text-[#f4efeb]"
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ─── Header clock ───────────────────────────────────────────────────
+   Isolated on purpose. This ticks once a second; when the state lived in the
+   page component every tick re-rendered the whole register — menu grid, tiles,
+   cart and all — which is exactly the jank you feel on a cheap tablet mid-rush.
+   Keeping it here means one <span> repaints instead of the screen. */
+function HeaderClock() {
+  const [now, setNow] = useState<Date | null>(null);
+
+  useEffect(() => {
+    setNow(new Date());
+    const t = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(t);
+  }, []);
+
+  // null until mounted so server and client markup agree
+  if (!now) return <span className="hidden md:block w-[68px]" />;
+
+  return (
+    <span className="text-xs font-mono text-[#aba8a4] hidden md:block tabular-nums">
+      {now.toLocaleTimeString('en-GH', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+    </span>
+  );
+}
+
+/* ─── Denomination counter ───────────────────────────────────────────
+   Counting a drawer by typing one total invites fat-finger errors and gives
+   no way to recheck. Count the notes and coins instead — the total is derived,
+   and the breakdown is stored with the shift so a difference can be traced. */
+const GHS_DENOMINATIONS = [200, 100, 50, 20, 10, 5, 2, 1, 0.5, 0.2, 0.1];
+
+const denomLabel = (d: number) => (d >= 1 ? `GH₵${d}` : `${Math.round(d * 100)}p`);
+
+function DenominationCounter({
+  counts,
+  onChange,
+}: {
+  counts: Record<string, number>;
+  onChange: (next: Record<string, number>) => void;
+}) {
+  const bump = (d: number, delta: number) => {
+    const key = String(d);
+    const next = Math.max(0, (counts[key] ?? 0) + delta);
+    const updated = { ...counts };
+    if (next === 0) delete updated[key];
+    else updated[key] = next;
+    onChange(updated);
+  };
+
+  return (
+    <div className="space-y-1.5">
+      {GHS_DENOMINATIONS.map(d => {
+        const qty = counts[String(d)] ?? 0;
+        const line = qty * d;
+        return (
+          <div
+            key={d}
+            className={`flex items-center gap-2 rounded-xl border px-3 py-2 transition-colors ${
+              qty > 0 ? 'bg-[#349f2d]/10 border-[#349f2d]/30' : 'bg-[#111311] border-[#2b2f2b]'
+            }`}
+          >
+            <span className="w-16 shrink-0 font-mono text-sm font-semibold text-[#f4efeb]">
+              {denomLabel(d)}
+            </span>
+            <button
+              onClick={() => bump(d, -1)}
+              disabled={qty === 0}
+              aria-label={`One less ${denomLabel(d)}`}
+              className="grid h-10 w-10 shrink-0 place-items-center rounded-lg border border-[#2b2f2b] text-[#aba8a4] transition-colors hover:text-[#f4efeb] active:scale-95 disabled:opacity-30"
+            >
+              <Minus size={14} />
+            </button>
+            <span className="w-8 shrink-0 text-center font-mono text-base font-bold tabular-nums text-[#f4efeb]">
+              {qty}
+            </span>
+            <button
+              onClick={() => bump(d, 1)}
+              aria-label={`One more ${denomLabel(d)}`}
+              className="grid h-10 w-10 shrink-0 place-items-center rounded-lg border border-[#2b2f2b] text-[#aba8a4] transition-colors hover:text-[#f4efeb] active:scale-95"
+            >
+              <Plus size={14} />
+            </button>
+            <span className="ml-auto font-mono text-sm tabular-nums text-[#aba8a4]">
+              {line > 0 ? formatCurrency(line) : '—'}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function denominationTotal(counts: Record<string, number>) {
+  return Object.entries(counts).reduce((s, [d, q]) => s + Number(d) * q, 0);
 }
 
 /* ─── Receipt Component ─────────────────────────────────────────────── */
@@ -186,10 +453,14 @@ function Receipt80mm({
         {receiptFooter.split('\n').map((line, i) => <div key={i}>{line}</div>)}
       </div>
 
-      {/* ── Developer credit ── */}
-      <div className={`${dash} mt-2 pt-1 text-center text-[8px] text-gray-500`}>
-        <div>powered by aadam · aadam.vercel.app</div>
-      </div>
+      {/* ── Developer credit ──
+          One line, last, below the client's own footer. See developer-credit.ts
+          for why it stays this small. */}
+      {DEVELOPER_CREDIT.enabled && (
+        <div className={`${dash} mt-2 pt-1 text-center text-[8px] text-gray-500`}>
+          <div>{DEVELOPER_CREDIT.receiptLine}</div>
+        </div>
+      )}
     </div>
   );
 }
@@ -249,6 +520,19 @@ export default function POSPage() {
   const [closingCashStr, setClosingCashStr] = useState('0');
   const [closingMomoStr, setClosingMomoStr] = useState('0');
   const [closingBoltStr, setClosingBoltStr] = useState('0');
+  /** Open tickets — sent to the kitchen, not yet paid. */
+  const [openTickets, setOpenTickets] = useState<any[]>([]);
+  const [settling, setSettling] = useState<any>(null);
+  /** Dish awaiting modifier choices before it can join the ticket. */
+  const [modifierTarget, setModifierTarget] = useState<MenuItem | null>(null);
+  /** 86 board — the item a long-press opened the availability sheet for. */
+  const [eightySixTarget, setEightySixTarget] = useState<MenuItem | null>(null);
+  const [eightySixSaving, setEightySixSaving] = useState(false);
+  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const longPressFired = useRef(false);
+  /** Drawer count by denomination — the source of truth for closing cash. */
+  const [cashCounts, setCashCounts] = useState<Record<string, number>>({});
+  const [countMode, setCountMode] = useState<'notes' | 'total'>('notes');
   const [sessionLoading, setSessionLoading] = useState(false);
   const [closingSummary, setClosingSummary] = useState<any>(null);
 
@@ -256,7 +540,6 @@ export default function POSPage() {
   const [todayOrders, setTodayOrders] = useState<any[]>([]);
   const [lastOrder, setLastOrder] = useState<any>(null);
   const [placing, setPlacing] = useState(false);
-  const [currentTime, setCurrentTime] = useState(new Date());
 
   // Offline / sync state
   const [isOnline, setIsOnline] = useState(true);
@@ -266,7 +549,6 @@ export default function POSPage() {
   const userId = user?.id as string | undefined;
   const cartKey = cartStorageKey(userId);
 
-  useEffect(() => { const t = setInterval(() => setCurrentTime(new Date()), 1000); return () => clearInterval(t); }, []);
 
   // ── Online / offline detection ────────────────────────────────────────────
   useEffect(() => {
@@ -430,21 +712,26 @@ export default function POSPage() {
   }, [authStatus, isItAdmin]);
 
   useEffect(() => {
-    if (sessionChecked && authSession?.user && registerGate === 'active') fetchOrders();
+    if (sessionChecked && authSession?.user && registerGate === 'active') { fetchOrders(); fetchOpenTickets(); }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionChecked, registerGate, posSession?.id]);
 
   // Cart helpers
-  const addToCart = useCallback((item: MenuCategory['items'][0]) => {
+  const addToCart = useCallback((item: MenuItem, modifiers: ChosenModifier[] = []) => {
+    const lineId = cartLineId(item.id, modifiers.map(m => m.optionId));
+    const price = item.price + modifiers.reduce((s, m) => s + m.priceDelta, 0);
     setCart(prev => {
-      const ex = prev.find(c => c.menuItemId === item.id);
-      if (ex) return prev.map(c => c.menuItemId === item.id ? { ...c, quantity: c.quantity + 1 } : c);
-      return [...prev, { menuItemId: item.id, name: item.name, price: item.price, quantity: 1 }];
+      const ex = prev.find(c => c.lineId === lineId);
+      if (ex) return prev.map(c => c.lineId === lineId ? { ...c, quantity: c.quantity + 1 } : c);
+      return [...prev, {
+        lineId, menuItemId: item.id, name: item.name,
+        basePrice: item.price, price, quantity: 1, modifiers,
+      }];
     });
   }, []);
-  const updateQty = (id: string, delta: number) => setCart(prev => prev.map(c => c.menuItemId === id ? { ...c, quantity: c.quantity + delta } : c).filter(c => c.quantity > 0));
-  const removeFromCart = (id: string) => setCart(prev => prev.filter(c => c.menuItemId !== id));
-  const setItemNote = (id: string, note: string) => setCart(prev => prev.map(c => c.menuItemId === id ? { ...c, notes: note } : c));
+  const updateQty = (lineId: string, delta: number) => setCart(prev => prev.map(c => c.lineId === lineId ? { ...c, quantity: c.quantity + delta } : c).filter(c => c.quantity > 0));
+  const removeFromCart = (lineId: string) => setCart(prev => prev.filter(c => c.lineId !== lineId));
+  const setItemNote = (lineId: string, note: string) => setCart(prev => prev.map(c => c.lineId === lineId ? { ...c, notes: note } : c));
   const clearCart = () => {
     setCart([]); setCustomerName(''); setCustomerPhone(''); setOrderNotes('');
     setDiscountAmount(0); setTenderedStr('0'); setMomoAmountStr('0'); setPaymentRef('');
@@ -478,7 +765,10 @@ export default function POSPage() {
         && (paymentMethod !== 'MOMO' || momoAmount > 0)
   );
 
-  const placeOrder = async () => {
+  /* Send to kitchen: same order, no money taken yet. Becomes an open ticket on
+     the rail until someone settles it. */
+  const placeOrder = async (opts: { unpaid?: boolean } = {}) => {
+    const unpaid = opts.unpaid === true;
     if (cart.length === 0 || placing) return;
     setPlacing(true);
 
@@ -495,14 +785,22 @@ export default function POSPage() {
 
     const orderPayload = {
       clientRef: checkoutClientRef.current,
-      items: cart,
-      paymentMethod: isSplit ? 'SPLIT' : paymentMethod,
+      items: cart.map(c => ({
+        menuItemId: c.menuItemId,
+        name: c.name,
+        // Base price only: the server re-adds verified modifier deltas.
+        price: c.basePrice,
+        quantity: c.quantity,
+        notes: c.notes,
+        modifierOptionIds: c.modifiers.map(m => m.optionId),
+      })),
+      paymentMethod: unpaid ? 'UNPAID' : (isSplit ? 'SPLIT' : paymentMethod),
       deliveryType,
-      paymentRef: !isSplit ? (paymentRef || undefined) : undefined,
-      tenderedAmount: !isSplit
-        ? (paymentMethod === 'CASH' ? tendered : paymentMethod === 'MOMO' ? momoAmount : undefined)
-        : undefined,
-      splitPayments: splitLegs ?? undefined,
+      paymentRef: unpaid || isSplit ? undefined : (paymentRef || undefined),
+      tenderedAmount: unpaid || isSplit
+        ? undefined
+        : (paymentMethod === 'CASH' ? tendered : paymentMethod === 'MOMO' ? momoAmount : undefined),
+      splitPayments: unpaid ? undefined : (splitLegs ?? undefined),
       discountAmount,
       sessionId: posSession?.id,
       customerName: customerName || undefined,
@@ -529,7 +827,7 @@ export default function POSPage() {
       fetchOrders();
       fetchSession();
       // Auto-trigger print dialog after a short delay
-      setTimeout(() => { try { window.print(); } catch {} }, 600);
+      if (!unpaid) setTimeout(() => { try { window.print(); } catch {} }, 600);
     } catch {
       // ── Offline fallback — save to IndexedDB queue, never lose the order ───
       try {
@@ -586,9 +884,13 @@ export default function POSPage() {
     const active = posSession ?? pendingSession;
     if (!active) return;
 
+    const countedCash = countMode === 'notes'
+      ? denominationTotal(cashCounts)
+      : (parseFloat(closingCashStr) || 0);
+
     if (!skipConfirm) {
       const expectedCash = Number(active.openingFloat) + sessionStats.cashRevenue;
-      const cashDisc  = (parseFloat(closingCashStr) || 0) - expectedCash;
+      const cashDisc  = countedCash - expectedCash;
       const momoDisc  = (parseFloat(closingMomoStr) || 0) - sessionStats.momoRevenue;
       const boltDisc  = (parseFloat(closingBoltStr) || 0) - sessionStats.boltRevenue;
       const hasDisc   = Math.abs(cashDisc) > 0.01 || Math.abs(momoDisc) > 0.01 || Math.abs(boltDisc) > 0.01;
@@ -611,9 +913,10 @@ export default function POSPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           sessionId: active.id,
-          closingCash: parseFloat(closingCashStr) || 0,
+          closingCash: countedCash,
           closingMomo: parseFloat(closingMomoStr) || 0,
           closingBolt: parseFloat(closingBoltStr) || 0,
+          cashCount: countMode === 'notes' && Object.keys(cashCounts).length > 0 ? cashCounts : null,
         }),
       });
       if (res.ok) {
@@ -623,6 +926,13 @@ export default function POSPage() {
         setPendingSession(null);
         setRegisterGate('open_new');
         setSessionStats({ revenue: 0, cashRevenue: 0, momoRevenue: 0, boltRevenue: 0 });
+        setCashCounts({});
+        setClosingCashStr('0');
+        setClosingMomoStr('0');
+        setClosingBoltStr('0');
+      } else {
+        const e = await res.json().catch(() => ({}));
+        alert(e.error || 'Could not close shift');
       }
     } finally { setSessionLoading(false); }
   };
@@ -630,6 +940,89 @@ export default function POSPage() {
   const filteredItems = search.trim()
     ? categories.flatMap(c => c.items).filter(i => i.name.toLowerCase().includes(search.toLowerCase()))
     : categories.find(c => c.id === activeCat)?.items ?? [];
+
+  /* ─── 86 board ────────────────────────────────────────────────────────
+     Long-press a tile to take a dish off the menu the moment the kitchen runs
+     out. Flips the register, the menu manager and the public website at once. */
+  const LONG_PRESS_MS = 550;
+
+  const startLongPress = (item: MenuItem) => {
+    longPressFired.current = false;
+    longPressTimer.current = setTimeout(() => {
+      longPressFired.current = true;
+      if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(18);
+      setEightySixTarget(item);
+    }, LONG_PRESS_MS);
+  };
+
+  const cancelLongPress = () => {
+    if (longPressTimer.current) clearTimeout(longPressTimer.current);
+    longPressTimer.current = null;
+  };
+
+  const fetchOpenTickets = useCallback(async () => {
+    try {
+      const res = await fetch('/api/pos/orders?open=1');
+      if (res.ok) setOpenTickets(await res.json());
+    } catch {
+      // Offline: the rail just shows what it last knew.
+    }
+  }, []);
+
+  const settleTicket = async (ticket: any, method: string, ref?: string, tenderedAmount?: number) => {
+    try {
+      const res = await fetch('/api/pos/orders', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orderId: ticket.id, paymentMethod: method, paymentRef: ref, tenderedAmount }),
+      });
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}));
+        alert(e.error || 'Could not settle this ticket.');
+        return;
+      }
+      const paid = await res.json();
+      setSettling(null);
+      await fetchOpenTickets();
+      fetchOrders();
+      fetchSession();
+      setLastOrder({ ...paid, createdAt: paid.createdAt ?? new Date().toISOString() });
+    } catch {
+      alert('Could not reach the server. Try again when you are back online.');
+    }
+  };
+
+  const setAvailability = async (item: MenuItem, isAvailable: boolean) => {
+    setEightySixSaving(true);
+    // Optimistic — during a rush the tile must grey out instantly.
+    setCategories(prev =>
+      prev.map(c => ({ ...c, items: c.items.map(i => (i.id === item.id ? { ...i, isAvailable } : i)) })),
+    );
+    try {
+      const res = await fetch('/api/pos/menu', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ itemId: item.id, isAvailable }),
+      });
+      if (!res.ok) throw new Error('failed');
+      if (!isAvailable) {
+        // An 86'd item must not stay in a half-built ticket.
+        setCart(prev => prev.filter(c => c.menuItemId !== item.id));
+      }
+      setEightySixTarget(null);
+    } catch {
+      // Roll back so the register never lies about what it can sell.
+      setCategories(prev =>
+        prev.map(c => ({
+          ...c,
+          items: c.items.map(i => (i.id === item.id ? { ...i, isAvailable: !isAvailable } : i)),
+        })),
+      );
+      alert('Could not update availability. Check your connection and try again.');
+    } finally {
+      setEightySixSaving(false);
+    }
+  };
 
   /* ─── Post-order success / print screen ─────────────────────────── */
   if (lastOrder) {
@@ -793,7 +1186,10 @@ export default function POSPage() {
   }
 
   const isAdminRole = ['OWNER', 'MANAGER', 'ACCOUNTANT'].includes(user?.role ?? '');
-  const canManageStale = ['OWNER', 'MANAGER'].includes(user?.role ?? '');
+  /* Mirrors ANY_POS_USER_MAY_CLOSE_ANY_SHIFT in app/api/pos/sessions/route.ts —
+     the whole team shares one register, so anyone at the POS can resolve a
+     shift left open from a previous day. Keep both flags in step. */
+  const canManageStale = true;
 
   const registerGateShell = (children: ReactNode) => (
     <div className="h-screen bg-[#111311] flex flex-col overflow-hidden">
@@ -1095,7 +1491,7 @@ export default function POSPage() {
         </div>
 
         <div className="shrink-0 p-4 border-t border-[#2b2f2b] bg-[#0a0b0a]">
-          <button onClick={placeOrder} disabled={!canCharge || placing}
+          <button onClick={() => placeOrder()} disabled={!canCharge || placing}
             className="w-full bg-[#349f2d] hover:bg-[#287e22] disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-2xl py-4 font-bold text-base transition-all active:scale-[0.98] shadow-[0_0_20px_rgba(52,159,45,0.3)]">
             {placing ? 'Processing…' : `Confirm Payment — ${formatCurrency(total)}`}
           </button>
@@ -1137,7 +1533,10 @@ export default function POSPage() {
               {/* Shift reconciliation — one section per payment method */}
               {(() => {
                 const expectedCash = Number(shiftSession.openingFloat) + sessionStats.cashRevenue;
-                const cashDisc = (parseFloat(closingCashStr) || 0) - expectedCash;
+                const countedCash = countMode === 'notes'
+                  ? denominationTotal(cashCounts)
+                  : (parseFloat(closingCashStr) || 0);
+                const cashDisc = countedCash - expectedCash;
                 const momoDisc = (parseFloat(closingMomoStr) || 0) - sessionStats.momoRevenue;
                 const boltDisc = (parseFloat(closingBoltStr) || 0) - sessionStats.boltRevenue;
                 const discColor = (d: number) => Math.abs(d) < 0.01 ? 'text-[#5ecf4f]' : d > 0 ? 'text-blue-400' : 'text-red-400';
@@ -1151,15 +1550,53 @@ export default function POSPage() {
                       <div><p className="text-[10px] text-[#aba8a4] uppercase tracking-wide">Bolt sales</p><p className="text-sm font-bold text-[#f4efeb]">{formatCurrency(sessionStats.boltRevenue)}</p></div>
                     </div>
 
-                    {/* Cash */}
-                    <div className="bg-[#191c19] border border-[#2b2f2b] rounded-2xl p-4 space-y-2">
-                      <div className="flex items-center justify-between">
-                        <p className="text-sm font-semibold text-[#f4efeb]">💵 Cash Count</p>
-                        <span className={`text-xs font-bold ${discColor(cashDisc)}`}>{discLabel(cashDisc)}</span>
+                    {/* Cash — count the drawer by denomination, or type a total */}
+                    <div className="bg-[#191c19] border border-[#2b2f2b] rounded-2xl p-4 space-y-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-sm font-semibold text-[#f4efeb]">💵 Count the drawer</p>
+                        <div className="flex rounded-lg border border-[#2b2f2b] p-0.5">
+                          {(['notes', 'total'] as const).map(m => (
+                            <button
+                              key={m}
+                              onClick={() => setCountMode(m)}
+                              className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition-colors ${
+                                countMode === m ? 'bg-[#349f2d] text-white' : 'text-[#aba8a4]'
+                              }`}
+                            >
+                              {m === 'notes' ? 'Count notes' : 'Type total'}
+                            </button>
+                          ))}
+                        </div>
                       </div>
-                      <p className="text-xs text-[#aba8a4]">Expected: {formatCurrency(expectedCash)} (float {formatCurrency(shiftSession.openingFloat)} + {formatCurrency(sessionStats.cashRevenue)} sales)</p>
-                      <p className="text-2xl font-black text-[#f4efeb] tabular-nums">{formatCurrency(parseFloat(closingCashStr) || 0)}</p>
-                      <Numpad value={closingCashStr} onChange={setClosingCashStr}/>
+
+                      <div className="grid grid-cols-3 gap-2 rounded-xl bg-[#111311] p-3 text-center">
+                        <div>
+                          <p className="text-[10px] uppercase tracking-wide text-[#aba8a4]">Expected in drawer</p>
+                          <p className="font-mono text-sm font-bold tabular-nums text-[#f4efeb]">{formatCurrency(expectedCash)}</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] uppercase tracking-wide text-[#aba8a4]">Counted</p>
+                          <p className="font-mono text-sm font-bold tabular-nums text-[#f4efeb]">{formatCurrency(countedCash)}</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] uppercase tracking-wide text-[#aba8a4]">Difference</p>
+                          <p className={`font-mono text-sm font-bold tabular-nums ${discColor(cashDisc)}`}>
+                            {Math.abs(cashDisc) < 0.01 ? 'Exact' : `${cashDisc > 0 ? '+' : '−'}${formatCurrency(Math.abs(cashDisc))}`}
+                          </p>
+                        </div>
+                      </div>
+                      <p className="text-[11px] text-[#aba8a4]">
+                        Float {formatCurrency(shiftSession.openingFloat)} + {formatCurrency(sessionStats.cashRevenue)} cash sales
+                      </p>
+
+                      {countMode === 'notes' ? (
+                        <DenominationCounter counts={cashCounts} onChange={setCashCounts} />
+                      ) : (
+                        <>
+                          <p className="text-2xl font-black tabular-nums text-[#f4efeb]">{formatCurrency(parseFloat(closingCashStr) || 0)}</p>
+                          <Numpad value={closingCashStr} onChange={setClosingCashStr}/>
+                        </>
+                      )}
                     </div>
 
                     {/* MoMo */}
@@ -1225,7 +1662,7 @@ export default function POSPage() {
           <button onClick={() => setView('register')} className="p-2 rounded-xl text-[#aba8a4] hover:text-[#f4efeb] border border-[#2b2f2b] transition-all">
             <X size={16}/>
           </button>
-          <span className="text-sm font-semibold text-[#f4efeb]">Today's Orders ({todayOrders.length})</span>
+          <span className="text-sm font-semibold text-[#f4efeb]">Today&apos;s Orders ({todayOrders.length})</span>
         </header>
         <div className="flex-1 overflow-y-auto p-3 space-y-2">
           {todayOrders.length === 0 ? (
@@ -1304,9 +1741,7 @@ export default function POSPage() {
           )}
         </div>
         <div className="flex items-center gap-1.5">
-          <span className="text-xs font-mono text-[#aba8a4] hidden md:block">
-            {currentTime.toLocaleTimeString('en-GH', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-          </span>
+          <HeaderClock />
           {/* Session pill — hidden on mobile (shift is in bottom nav) */}
           <button onClick={() => setView('session')}
             className={`hidden md:flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-medium border transition-all ${posSession ? 'bg-[#349f2d]/20 text-[#5ecf4f] border-[#349f2d]/40' : 'text-[#aba8a4] border-[#2b2f2b] hover:border-[#404540]'}`}>
@@ -1338,6 +1773,28 @@ export default function POSPage() {
                 className="w-full bg-[#191c19] border border-[#2b2f2b] rounded-xl pl-9 pr-4 py-2 text-sm text-[#f4efeb] placeholder:text-[#aba8a4]/60 focus:outline-none focus:border-[#349f2d] transition-colors"/>
               {search && <button onClick={() => setSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-[#aba8a4]"><X size={12}/></button>}
             </div>
+            {/* Open tickets rail — dine-in tables waiting to settle */}
+            {openTickets.length > 0 && !search && (
+              <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+                {openTickets.map(t => {
+                  const mins = Math.max(0, Math.round((Date.now() - new Date(t.createdAt).getTime()) / 60000));
+                  return (
+                    <button
+                      key={t.id}
+                      onClick={() => setSettling(t)}
+                      className="shrink-0 rounded-xl border border-yellow-500/40 bg-yellow-500/10 px-3 py-2 text-left transition-colors hover:bg-yellow-500/20"
+                    >
+                      <span className="block font-mono text-[11px] font-bold text-yellow-300">
+                        {t.orderNumber}
+                      </span>
+                      <span className="block text-[11px] text-[#aba8a4]">
+                        {formatCurrency(Number(t.total))} · {mins}m
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
             {!search && (
               <div className="flex gap-1.5 overflow-x-auto pb-2 scrollbar-none">
                 {categories.map(cat => (
@@ -1353,14 +1810,46 @@ export default function POSPage() {
           <div className="flex-1 overflow-y-auto p-3">
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-3 xl:grid-cols-4 gap-3">
               {filteredItems.map(item => {
-                const inCart = cart.find(c => c.menuItemId === item.id);
+                const inCartQty = cart.filter(c => c.menuItemId === item.id).reduce((n, c) => n + c.quantity, 0);
+                const inCart = inCartQty > 0;
+                const off = item.isAvailable === false;
                 return (
-                  <button key={item.id} onClick={() => addToCart(item)}
-                    className={`relative text-left rounded-2xl overflow-hidden border transition-all active:scale-[0.97] ${inCart ? 'bg-[#349f2d]/20 border-[#349f2d]/50' : 'bg-[#191c19] border-[#2b2f2b] hover:border-[#404540] hover:bg-[#1b1e1b]'}`}>
+                  <button
+                    key={item.id}
+                    onClick={() => {
+                      // Suppress the click that follows a long-press.
+                      if (longPressFired.current) { longPressFired.current = false; return; }
+                      if (off) { setEightySixTarget(item); return; }
+                      if (item.modifierGroups && item.modifierGroups.length > 0) {
+                        setModifierTarget(item);
+                        return;
+                      }
+                      addToCart(item);
+                    }}
+                    onPointerDown={() => startLongPress(item)}
+                    onPointerUp={cancelLongPress}
+                    onPointerLeave={cancelLongPress}
+                    onContextMenu={e => { e.preventDefault(); setEightySixTarget(item); }}
+                    aria-label={off ? `${item.name} — unavailable, tap to put back on` : item.name}
+                    className={`relative text-left rounded-2xl overflow-hidden border transition-all active:scale-[0.97] select-none ${
+                      off
+                        ? 'bg-[#141714] border-[#2b2f2b] opacity-45'
+                        : inCart
+                          ? 'bg-[#349f2d]/20 border-[#349f2d]/50'
+                          : 'bg-[#191c19] border-[#2b2f2b] hover:border-[#404540] hover:bg-[#1b1e1b]'
+                    }`}
+                    style={{ WebkitTouchCallout: 'none' }}
+                  >
+                    {/* 86'd badge */}
+                    {off && (
+                      <span className="absolute top-2 left-2 z-10 rounded-full bg-red-500/90 px-2 py-0.5 text-[10px] font-bold text-white">
+                        86&apos;d
+                      </span>
+                    )}
                     {/* Quantity badge */}
-                    {inCart && (
+                    {inCart && !off && (
                       <span className="absolute top-2 right-2 z-10 w-6 h-6 bg-[#349f2d] rounded-full flex items-center justify-center text-xs font-bold text-white shadow-lg">
-                        {inCart.quantity}
+                        {inCartQty}
                       </span>
                     )}
                     {/* Popular badge */}
@@ -1379,8 +1868,15 @@ export default function POSPage() {
                         />
                       </div>
                     ) : (
-                      <div className="w-full h-14 bg-[#141714] flex items-center justify-center">
-                        <span className="text-2xl opacity-30">🍽</span>
+                      <div
+                        className="w-full h-20 flex items-center justify-center"
+                        style={{
+                          background: `linear-gradient(160deg, ${tileArt(item.name).tint}55, ${tileArt(item.name).tint}22)`,
+                        }}
+                      >
+                        <span className="text-3xl drop-shadow-sm" aria-hidden>
+                          {tileArt(item.name).glyph}
+                        </span>
                       </div>
                     )}
                     {/* Text */}
@@ -1424,33 +1920,40 @@ export default function POSPage() {
                 <p className="text-sm text-[#aba8a4]">Tap items to add</p>
               </div>
             ) : cart.map(item => (
-              <div key={item.menuItemId} className="bg-[#191c19] border border-[#2b2f2b] rounded-xl px-3 py-3">
+              <div key={item.lineId} className="bg-[#191c19] border border-[#2b2f2b] rounded-xl px-3 py-3">
                 <div className="flex items-start justify-between gap-2 mb-2">
-                  <p className="text-sm font-medium text-[#f4efeb] flex-1 leading-tight">{item.name}</p>
-                  <button onClick={() => removeFromCart(item.menuItemId)} className="text-[#aba8a4] hover:text-red-400 transition-colors shrink-0">
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-[#f4efeb] leading-tight">{item.name}</p>
+                    {item.modifiers.length > 0 && (
+                      <p className="mt-0.5 text-[11px] leading-snug text-[#5ecf4f]">
+                        {item.modifiers.map(m => m.name).join(' · ')}
+                      </p>
+                    )}
+                  </div>
+                  <button onClick={() => removeFromCart(item.lineId)} className="text-[#aba8a4] hover:text-red-400 transition-colors shrink-0">
                     <Trash2 size={14}/>
                   </button>
                 </div>
                 <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center gap-2">
-                    <button onClick={() => updateQty(item.menuItemId, -1)} className="w-8 h-8 rounded-lg bg-[#2b2f2b] hover:bg-[#404540] flex items-center justify-center transition-colors active:scale-95">
+                    <button onClick={() => updateQty(item.lineId, -1)} className="w-8 h-8 rounded-lg bg-[#2b2f2b] hover:bg-[#404540] flex items-center justify-center transition-colors active:scale-95">
                       <Minus size={14} className="text-[#f4efeb]"/>
                     </button>
                     <span className="text-sm font-bold text-[#f4efeb] w-5 text-center">{item.quantity}</span>
-                    <button onClick={() => updateQty(item.menuItemId, 1)} className="w-8 h-8 rounded-lg bg-[#349f2d] hover:bg-[#287e22] flex items-center justify-center transition-colors active:scale-95">
+                    <button onClick={() => updateQty(item.lineId, 1)} className="w-8 h-8 rounded-lg bg-[#349f2d] hover:bg-[#287e22] flex items-center justify-center transition-colors active:scale-95">
                       <Plus size={14} className="text-white"/>
                     </button>
                   </div>
                   <span className="text-sm font-bold text-[#5ecf4f]">{formatCurrency(item.price * item.quantity)}</span>
                 </div>
                 {/* Per-line note */}
-                {editingNoteId === item.menuItemId ? (
-                  <input autoFocus value={item.notes ?? ''} onChange={e => setItemNote(item.menuItemId, e.target.value)}
+                {editingNoteId === item.lineId ? (
+                  <input autoFocus value={item.notes ?? ''} onChange={e => setItemNote(item.lineId, e.target.value)}
                     onBlur={() => setEditingNoteId(null)}
                     placeholder="Add note…"
                     className="w-full text-[10px] bg-[#111311] border border-[#349f2d]/40 rounded-lg px-2 py-1 text-[#f4efeb] placeholder:text-[#aba8a4]/50 focus:outline-none"/>
                 ) : (
-                  <button onClick={() => setEditingNoteId(item.menuItemId)}
+                  <button onClick={() => setEditingNoteId(item.lineId)}
                     className="text-[10px] text-[#aba8a4] hover:text-[#5ecf4f] flex items-center gap-1 transition-colors">
                     <Pencil size={9}/> {item.notes || 'Add note'}
                   </button>
@@ -1501,6 +2004,14 @@ export default function POSPage() {
               <Receipt size={14} className="inline mr-1.5 -mt-0.5"/>
               Charge {cart.length > 0 ? formatCurrency(total) : ''}
             </button>
+            {/* Dine-in: fire the food now, take the money when they leave. */}
+            <button
+              onClick={() => placeOrder({ unpaid: true })}
+              disabled={cart.length === 0 || placing}
+              className="mt-2 w-full min-h-[52px] rounded-2xl border border-[#2b2f2b] text-sm font-semibold text-[#aba8a4] transition-colors hover:border-[#404540] hover:text-[#f4efeb] disabled:opacity-40"
+            >
+              {placing ? 'Saving…' : 'Send to kitchen · pay later'}
+            </button>
           </div>
         </div>
       </div>
@@ -1539,6 +2050,119 @@ export default function POSPage() {
           <span className="text-[10px] font-medium">Shift</span>
         </button>
       </nav>
+
+      {/* Settle an open ticket */}
+      {settling && (
+        <div className="fixed inset-0 z-[60] flex items-end justify-center sm:items-center">
+          <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setSettling(null)} />
+          <div className="relative w-full space-y-4 rounded-t-3xl border-t border-[#2b2f2b] bg-[#191c19] p-5 sm:max-w-sm sm:rounded-3xl sm:border">
+            <div>
+              <p className="font-mono text-sm font-bold text-[#f4efeb]">{settling.orderNumber}</p>
+              <p className="mt-0.5 text-xs text-[#aba8a4]">
+                {settling.items?.length ?? 0} item{(settling.items?.length ?? 0) === 1 ? '' : 's'} ·{' '}
+                {DELIVERY_LABELS[settling.deliveryType] ?? settling.deliveryType}
+              </p>
+              <p className="mt-3 text-3xl font-black tabular-nums text-[#5ecf4f]">
+                {formatCurrency(Number(settling.total))}
+              </p>
+            </div>
+
+            <ul className="max-h-40 space-y-1 overflow-y-auto rounded-xl bg-[#111311] p-3">
+              {(settling.items ?? []).map((li: any) => (
+                <li key={li.id} className="flex justify-between gap-3 text-xs text-[#aba8a4]">
+                  <span>
+                    {li.quantity}× {li.name}
+                    {li.modifiers?.length > 0 && (
+                      <span className="block text-[10px] text-[#5ecf4f]">
+                        {li.modifiers.map((m: any) => m.name).join(' · ')}
+                      </span>
+                    )}
+                  </span>
+                  <span className="font-mono shrink-0">{formatCurrency(Number(li.subtotal))}</span>
+                </li>
+              ))}
+            </ul>
+
+            <div>
+              <p className="mb-2 text-xs text-[#aba8a4]">How did they pay?</p>
+              <div className="grid grid-cols-3 gap-2">
+                {PAYMENT_METHODS.map(pm => (
+                  <button
+                    key={pm.id}
+                    onClick={() => settleTicket(settling, pm.id, undefined, pm.id === 'CASH' ? Number(settling.total) : undefined)}
+                    className="flex min-h-[64px] flex-col items-center justify-center gap-1 rounded-xl border border-[#2b2f2b] bg-[#111311] text-xs font-semibold text-[#f4efeb] transition-colors hover:border-[#349f2d]/50 active:scale-95"
+                  >
+                    <pm.icon size={18} className="text-[#5ecf4f]" />
+                    {pm.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <button
+              onClick={() => setSettling(null)}
+              className="w-full min-h-[46px] rounded-2xl border border-[#2b2f2b] text-sm text-[#aba8a4] transition-colors hover:text-[#f4efeb]"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Modifier sheet — protein, spice, extras */}
+      {modifierTarget && (
+        <ModifierSheet
+          item={modifierTarget}
+          onCancel={() => setModifierTarget(null)}
+          onConfirm={mods => { addToCart(modifierTarget, mods); setModifierTarget(null); }}
+        />
+      )}
+
+      {/* 86 board sheet — long-press a tile to take a dish off, or put it back */}
+      {eightySixTarget && (
+        <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center">
+          <div
+            className="absolute inset-0 bg-black/70 backdrop-blur-sm"
+            onClick={() => !eightySixSaving && setEightySixTarget(null)}
+          />
+          <div className="relative w-full sm:max-w-sm bg-[#191c19] border-t sm:border border-[#2b2f2b] rounded-t-3xl sm:rounded-3xl p-5 space-y-4">
+            <div>
+              <p className="text-base font-bold text-[#f4efeb]">{eightySixTarget.name}</p>
+              <p className="mt-1 text-xs text-[#aba8a4]">
+                {eightySixTarget.isAvailable === false
+                  ? "Currently 86'd — hidden from the register and the website."
+                  : 'Ran out? Take it off until it is back.'}
+              </p>
+            </div>
+
+            {eightySixTarget.isAvailable === false ? (
+              <button
+                onClick={() => setAvailability(eightySixTarget, true)}
+                disabled={eightySixSaving}
+                className="w-full min-h-[52px] rounded-2xl bg-[#349f2d] hover:bg-[#287e22] disabled:opacity-40 text-white font-bold text-sm transition-colors"
+              >
+                {eightySixSaving ? 'Saving…' : 'Put back on the menu'}
+              </button>
+            ) : (
+              <button
+                onClick={() => setAvailability(eightySixTarget, false)}
+                disabled={eightySixSaving}
+                className="w-full min-h-[52px] rounded-2xl bg-red-600 hover:bg-red-700 disabled:opacity-40 text-white font-bold text-sm transition-colors"
+              >
+                {eightySixSaving ? 'Saving…' : "Mark unavailable (86 it)"}
+              </button>
+            )}
+
+            <button
+              onClick={() => setEightySixTarget(null)}
+              disabled={eightySixSaving}
+              className="w-full min-h-[48px] rounded-2xl border border-[#2b2f2b] text-[#aba8a4] text-sm transition-colors hover:text-[#f4efeb]"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Global print style */}
       <style jsx global>{`

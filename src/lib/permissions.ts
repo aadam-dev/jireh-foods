@@ -21,6 +21,7 @@ export const RESOURCE_ROLES: Record<string, UserRole[]> = {
   admin: [UserRole.OWNER, UserRole.MANAGER, UserRole.ACCOUNTANT],
   dashboard: [UserRole.OWNER, UserRole.MANAGER, UserRole.ACCOUNTANT],
   orders: [UserRole.OWNER, UserRole.MANAGER, UserRole.ACCOUNTANT],
+  intake: [UserRole.OWNER, UserRole.MANAGER],
   menu: [UserRole.OWNER, UserRole.MANAGER],
   inventory: [UserRole.OWNER, UserRole.MANAGER],
   boms: [UserRole.OWNER, UserRole.MANAGER],

@@ -16,6 +16,7 @@ const PUBLIC_KEYS = [
   'low_stock_alert_threshold', // GH₵ amount below which alerts fire
   'receipt_header',   // tagline printed under business name on receipt
   'receipt_footer',
+  'inventory_tracking', // 'true' | 'false' — gate BOM stock deduction on POS sales
 ] as const;
 
 const upsertSchema = z.object({
@@ -64,6 +65,11 @@ export async function PATCH(req: NextRequest) {
       if (isNaN(n) || n < 0 || n > 1) {
         return NextResponse.json({ error: 'tax_rate must be a number between 0 and 1 (e.g. 0.15 for 15%)' }, { status: 400 });
       }
+    }
+
+    // Boolean-valued settings must be exactly 'true' or 'false'
+    if (key === 'inventory_tracking' && value !== 'true' && value !== 'false') {
+      return NextResponse.json({ error: "inventory_tracking must be 'true' or 'false'" }, { status: 400 });
     }
 
     const setting = await setSetting(key, value);

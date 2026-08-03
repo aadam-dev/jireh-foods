@@ -7,7 +7,7 @@ import {
   LayoutDashboard, ShoppingBag, UtensilsCrossed, Package,
   Receipt, Users, DollarSign, BarChart3, Settings,
   Monitor, LogOut, X, FlaskConical,
-  Truck, ShoppingCart, UserSearch, ChevronRight,
+  Truck, ShoppingCart, UserSearch, ChevronRight, PhoneCall,
 } from 'lucide-react';
 import Image from 'next/image';
 import { UserRole } from '@prisma/client';
@@ -32,6 +32,7 @@ const NAV_SECTIONS: NavSection[] = [
     items: [
       { href: '/admin', label: 'Dashboard', icon: <LayoutDashboard size={16} />, roles: ['OWNER', 'MANAGER', 'ACCOUNTANT'] },
       { href: '/admin/orders', label: 'Orders', icon: <ShoppingBag size={16} />, roles: ['OWNER', 'MANAGER', 'ACCOUNTANT'] },
+      { href: '/admin/intake', label: 'Take an order', icon: <PhoneCall size={16} />, roles: ['OWNER', 'MANAGER'] },
       { href: '/admin/menu', label: 'Menu', icon: <UtensilsCrossed size={16} />, roles: ['OWNER', 'MANAGER'] },
     ],
   },
@@ -99,7 +100,7 @@ export function Sidebar({ user, lowStockCount = 0, onClose, mobile = false }: Si
           </div>
         </div>
         {mobile && (
-          <button onClick={onClose} className="relative text-[var(--muted)] hover:text-[var(--foreground)] p-1.5 rounded-lg hover:bg-white/5 transition-colors">
+          <button onClick={onClose} aria-label="Close navigation" className="relative text-[var(--muted)] hover:text-[var(--foreground)] p-1.5 rounded-lg hover:bg-white/5 transition-colors">
             <X size={16} />
           </button>
         )}

@@ -1,304 +1,529 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import {
-  ShoppingBag, TrendingUp, AlertTriangle, DollarSign, Package,
-  ArrowRight, BarChart3, ArrowUpRight, ArrowDownRight, Monitor,
+  Monitor, PackagePlus, Receipt, ClipboardList, AlertTriangle, Clock,
+  EyeOff, Wallet, Package, ShoppingBag, ArrowRight, Sunrise,
 } from 'lucide-react';
 import {
-  AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
-  XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
-} from 'recharts';
-import Link from 'next/link';
-import { formatCurrency, formatTime } from '@/src/lib/utils';
-import { OrderStatusBadge, PaymentBadge } from '@/src/components/ui/Badge';
-import { Card, CardHeader, CardTitle } from '@/src/components/ui/Card';
+  StatCard, SectionCard, EmptyState, PageHeader, StatusChip, DataTable,
+  formatGHS, Delta, type Column,
+} from '@/src/components/admin/ui';
+import { apiGet, errorMessage } from '@/src/lib/api-client';
+
+/* ─── Types ──────────────────────────────────────────────────────────────── */
+
+interface AttentionItem {
+  id: string;
+  label: string;
+  detail: string;
+  href: string;
+  actionLabel: string;
+}
 
 interface DashboardData {
-  today: { revenue: number; orders: number; revenueTrend: number };
+  serverTime: string;
+  today: {
+    revenue: number; orders: number; averageTicket: number;
+    revenueTrend: number | null; lastWeekSameDayRevenue: number;
+    topSeller: { name: string; qty: number } | null;
+  };
+  yesterday: { revenue: number; orders: number };
+  week: {
+    revenue: number; ingredientCost: number; expenses: number;
+    moneyLeft: number; recipeCoverage: number; startDate: string;
+  };
   month: { revenue: number; orders: number };
+  channelMix: Record<string, { orders: number; revenue: number }>;
   paymentMix: Record<string, number>;
-  trendChart: { date: string; revenue: number }[];
   recentOrders: any[];
-  lowStockAlerts: any[];
+  lowStockAlerts: {
+    id: string; name: string; unit: string; quantity: number;
+    threshold: number; costPerUnit: number; suggestedQty: number;
+  }[];
   activeSession: any;
+  attention: {
+    staleShifts: { id: string; openedAt: string; openedBy: string }[];
+    staleOrders: { id: string; orderNumber: string; status: string; total: number; waitingMinutes: number }[];
+    unavailableItems: { id: string; name: string; category: string }[];
+    duePayroll: { id: string; name: string; netPay: number; periodEnd: string; status: string }[];
+  };
   topItems: { name: string; qty: number; revenue: number }[];
   stockValue: number;
 }
 
-const PAYMENT_COLORS: Record<string, string> = {
-  CASH: '#5ecf4f', MOMO: '#f59e0b', BOLT_FOOD: '#60a5fa', CARD: '#a78bfa', BANK_TRANSFER: '#c084fc', UNPAID: '#6b7280',
+const CHANNEL_LABELS: Record<string, string> = {
+  POS: 'Walk-in (register)',
+  WALK_IN: 'Walk-in',
+  ONLINE: 'WhatsApp / online',
+  BOLT: 'Bolt Food',
 };
 
-type MetricAccent = 'green' | 'blue' | 'purple' | 'orange';
-
-const ACCENT: Record<MetricAccent, { bar: string; iconBg: string; iconBorder: string; trendPos: string }> = {
-  green:  { bar: 'bg-[#349f2d]',   iconBg: 'bg-[#349f2d]/15',   iconBorder: 'border-[#349f2d]/25',   trendPos: 'text-[#5ecf4f]' },
-  blue:   { bar: 'bg-blue-500',    iconBg: 'bg-blue-500/15',    iconBorder: 'border-blue-500/25',    trendPos: 'text-blue-400' },
-  purple: { bar: 'bg-purple-500',  iconBg: 'bg-purple-500/15',  iconBorder: 'border-purple-500/25',  trendPos: 'text-purple-400' },
-  orange: { bar: 'bg-orange-400',  iconBg: 'bg-orange-400/15',  iconBorder: 'border-orange-400/25',  trendPos: 'text-orange-400' },
-};
-
-function StatCard({ title, value, sub, trend, icon, accent = 'green' }: {
-  title: string; value: string; sub?: string; trend?: number; icon: React.ReactNode; accent?: MetricAccent;
-}) {
-  const a = ACCENT[accent];
-  return (
-    <div className="relative bg-[#191c19] border border-[#2b2f2b] rounded-2xl p-5 overflow-hidden">
-      {/* Top accent line */}
-      <div className={`absolute top-0 inset-x-0 h-[2px] ${a.bar}`} />
-      <div className="flex items-start justify-between mb-4">
-        <p className="text-xs font-medium text-[#aba8a4] uppercase tracking-wider">{title}</p>
-        <div className={`w-9 h-9 rounded-xl ${a.iconBg} border ${a.iconBorder} flex items-center justify-center shrink-0`}>
-          {icon}
-        </div>
-      </div>
-      <p className="text-3xl font-bold text-[#f4efeb] tracking-tight tabular-nums">{value}</p>
-      {sub && <p className="text-xs text-[#aba8a4] mt-1.5">{sub}</p>}
-      {trend !== undefined && (
-        <div className={`flex items-center gap-1 mt-3 text-xs font-semibold ${trend >= 0 ? a.trendPos : 'text-red-400'}`}>
-          {trend >= 0 ? <ArrowUpRight size={13}/> : <ArrowDownRight size={13}/>}
-          {Math.abs(trend).toFixed(1)}% vs yesterday
-        </div>
-      )}
-    </div>
-  );
+function greeting(now: Date) {
+  const h = now.getHours();
+  if (h < 12) return 'Good morning';
+  if (h < 17) return 'Good afternoon';
+  return 'Good evening';
 }
 
-const CustomTooltip = ({ active, payload, label }: any) => {
-  if (!active || !payload?.length) return null;
-  return (
-    <div className="bg-[#191c19] border border-[#2b2f2b] rounded-xl px-3 py-2 text-xs shadow-xl">
-      <p className="text-[#aba8a4] mb-1">{label}</p>
-      {payload.map((p: any, i: number) => (
-        <p key={i} style={{ color: p.color }} className="font-semibold">{formatCurrency(p.value)}</p>
-      ))}
-    </div>
-  );
-};
+/* ─── Page ───────────────────────────────────────────────────────────────── */
 
-export default function DashboardPage() {
+export default function TodayPage() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
-
-  const fetchData = async () => {
-    try {
-      const res = await fetch('/api/admin/dashboard');
-      if (res.ok) setData(await res.json());
-    } finally { setLoading(false); }
-  };
+  const [loadError, setLoadError] = useState('');
+  const [now, setNow] = useState<Date | null>(null);
 
   useEffect(() => {
-    fetchData();
-    const interval = setInterval(fetchData, 30000);
-    return () => clearInterval(interval);
+    setNow(new Date());
+    const clock = setInterval(() => setNow(new Date()), 60_000);
+    return () => clearInterval(clock);
   }, []);
 
-  if (loading) return (
-    <div className="p-6 flex items-center justify-center min-h-96">
-      <div className="w-6 h-6 border-2 border-[#349f2d] border-t-transparent rounded-full animate-spin" />
-    </div>
-  );
+  useEffect(() => {
+    let cancelled = false;
 
-  const paymentPieData = Object.entries(data?.paymentMix ?? {}).map(([method, value]) => ({ name: method, value }));
-  const trendData = (data?.trendChart ?? []).map(d => ({ ...d, date: d.date.slice(5) })); // MM-DD
+    const fetchData = async () => {
+      // The dashboard endpoint runs ~17 queries. An owner leaves this open all
+      // day, so don't poll a tab nobody is looking at — refresh on return instead.
+      if (document.hidden) return;
+      try {
+        const fresh = await apiGet<DashboardData>('/api/admin/dashboard');
+        if (!cancelled) {
+          setData(fresh);
+          setLoadError('');
+        }
+      } catch (err) {
+        if (!cancelled) setLoadError(errorMessage(err, 'Could not refresh the dashboard.'));
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+
+    fetchData();
+    const interval = setInterval(fetchData, 60_000);
+    const onVisible = () => { if (!document.hidden) fetchData(); };
+    document.addEventListener('visibilitychange', onVisible);
+
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="flex min-h-96 items-center justify-center p-6">
+        <div className="h-6 w-6 animate-spin rounded-full border-2 border-[var(--fl-brand)] border-t-transparent" />
+      </div>
+    );
+  }
+
+  const t = data?.today;
+  const w = data?.week;
+  const hasSoldToday = (t?.orders ?? 0) > 0;
+
+  /* Attention feed — one ember section, assembled from every open loop. */
+  const attention: AttentionItem[] = [];
+  for (const s of data?.attention.staleShifts ?? []) {
+    attention.push({
+      id: `shift-${s.id}`,
+      label: 'Shift never closed',
+      detail: `${s.openedBy} opened the register on ${new Date(s.openedAt).toLocaleDateString('en-GH', { weekday: 'long', day: 'numeric', month: 'short' })} and it is still open. Cash is unaccounted for until it is closed.`,
+      href: '/pos',
+      actionLabel: 'Close shift',
+    });
+  }
+  for (const o of data?.attention.staleOrders ?? []) {
+    attention.push({
+      id: `order-${o.id}`,
+      label: `Order ${o.orderNumber} waiting ${o.waitingMinutes} min`,
+      detail: `Still ${o.status.toLowerCase()} — ${formatGHS(o.total)}.`,
+      href: '/admin/orders',
+      actionLabel: 'Open orders',
+    });
+  }
+  const lowStock = data?.lowStockAlerts ?? [];
+  if (lowStock.length > 0) {
+    attention.push({
+      id: 'low-stock',
+      label: `${lowStock.length} ingredient${lowStock.length === 1 ? '' : 's'} low`,
+      detail: lowStock.slice(0, 4).map(i => `${i.name} (${i.quantity} ${i.unit})`).join(', ') +
+        (lowStock.length > 4 ? `, +${lowStock.length - 4} more` : ''),
+      href: '/admin/inventory',
+      actionLabel: 'Build market list',
+    });
+  }
+  for (const i of data?.attention.unavailableItems ?? []) {
+    attention.push({
+      id: `86-${i.id}`,
+      label: `${i.name} is 86'd`,
+      detail: `Marked unavailable, so it is hidden from the register and the website. Turn it back on when it is back.`,
+      href: '/admin/menu',
+      actionLabel: 'Menu manager',
+    });
+  }
+  for (const p of data?.attention.duePayroll ?? []) {
+    attention.push({
+      id: `pay-${p.id}`,
+      label: `Payroll due — ${p.name}`,
+      detail: `${formatGHS(p.netPay)} for the period ending ${new Date(p.periodEnd).toLocaleDateString('en-GH', { day: 'numeric', month: 'short' })}. Still ${p.status.toLowerCase()}.`,
+      href: '/admin/payroll',
+      actionLabel: 'Payroll',
+    });
+  }
+
+  const channels = Object.entries(data?.channelMix ?? {})
+    .sort((a, b) => b[1].revenue - a[1].revenue);
+
+  const stockColumns: Column<DashboardData['lowStockAlerts'][number]>[] = [
+    { key: 'name', header: 'Ingredient', render: r => <span className="font-medium">{r.name}</span> },
+    {
+      key: 'left', header: 'Left', numeric: true,
+      render: r => <span className="fl-mono">{r.quantity} {r.unit}</span>,
+    },
+    {
+      key: 'par', header: 'Par', numeric: true, hideOnMobile: true,
+      render: r => <span className="fl-mono text-[var(--fl-ink-3)]">{r.threshold} {r.unit}</span>,
+    },
+    {
+      key: 'buy', header: 'Buy about', numeric: true,
+      render: r => (
+        <span className="fl-mono">
+          {Math.ceil(r.suggestedQty)} {r.unit}
+          {r.costPerUnit > 0 && (
+            <span className="ml-2 text-[var(--fl-ink-3)]">
+              ≈ {formatGHS(Math.ceil(r.suggestedQty) * r.costPerUnit, { decimals: false })}
+            </span>
+          )}
+        </span>
+      ),
+    },
+  ];
 
   return (
-    <div className="p-4 sm:p-6 space-y-4 sm:space-y-6 max-w-7xl mx-auto">
-      {/* Header */}
-      <div className="flex items-start sm:items-center justify-between gap-4">
-        <div>
-          <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-[#aba8a4]/60 mb-1">Back Office</p>
-          <h1 className="text-xl sm:text-2xl font-bold text-[#f4efeb] font-serif leading-tight">Dashboard</h1>
-          <p className="text-xs text-[#aba8a4] mt-1">
-            {new Date().toLocaleDateString('en-GH', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
-          </p>
+    <div className="mx-auto max-w-7xl space-y-5 p-4 sm:p-6">
+      {loadError && (
+        <div className="rounded-xl border border-[rgba(192,57,43,0.3)] bg-[#FBEAE8] px-4 py-3 text-sm text-[var(--fl-bad)]">
+          {loadError} Showing the last figures loaded.
         </div>
-        <div className="flex items-center gap-2 shrink-0">
-          <Link
-            href="/pos"
-            className="hidden sm:flex items-center gap-2 px-3.5 py-2 bg-[#191c19] border border-[#2b2f2b] rounded-xl text-sm text-[#aba8a4] hover:border-[#404540] hover:text-[#f4efeb] transition-all"
-          >
-            <Monitor size={14}/> POS Register
-          </Link>
-          {data?.activeSession ? (
-            <div className="flex items-center gap-2 px-3.5 py-2 bg-[#349f2d]/10 border border-[#349f2d]/30 rounded-xl text-xs sm:text-sm text-[#5ecf4f]">
-              <span className="w-1.5 h-1.5 rounded-full bg-[#5ecf4f] animate-pulse shrink-0" />
-              <span className="hidden sm:inline">Shift open ·</span>
-              <span className="font-semibold">{data.activeSession.openedByUser?.name}</span>
-            </div>
-          ) : (
-            <div className="flex items-center gap-2 px-3.5 py-2 bg-[#191c19] border border-[#2b2f2b] rounded-xl text-xs sm:text-sm text-[#aba8a4]">
-              <span className="w-1.5 h-1.5 rounded-full bg-[#aba8a4]/30 shrink-0" />
-              <span className="hidden sm:inline">No active shift</span>
-              <span className="sm:hidden">Closed</span>
-            </div>
+      )}
+
+      <PageHeader
+        title={`${now ? greeting(now) : 'Hello'}, ${data?.activeSession?.openedByUser?.name ?? 'Chef'}`}
+        subtitle={
+          now
+            ? now.toLocaleDateString('en-GH', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
+            : undefined
+        }
+        actions={[
+          { label: 'Open POS', href: '/pos', icon: Monitor, primary: true },
+          { label: 'Receive stock', href: '/admin/purchasing', icon: PackagePlus },
+          { label: 'Add expense', href: '/admin/expenses', icon: Receipt },
+          { label: 'Market list', href: '/admin/inventory', icon: ClipboardList },
+        ]}
+      />
+
+      {/* Live service strip — only while the register is open */}
+      {data?.activeSession && (
+        <div className="flex flex-wrap items-center gap-x-6 gap-y-2 rounded-2xl border border-[rgba(30,92,58,0.28)] bg-[var(--fl-brand-soft)] px-5 py-3.5">
+          <span className="flex items-center gap-2 text-sm font-semibold text-[var(--fl-brand)]">
+            <span className="h-2 w-2 animate-pulse rounded-full bg-[var(--fl-brand)]" />
+            Register open · {data.activeSession.openedByUser?.name}
+          </span>
+          <span className="text-sm text-[var(--fl-ink-2)]">
+            <span className="fl-mono font-semibold text-[var(--fl-ink)]">
+              {data.activeSession._count?.orders ?? 0}
+            </span>{' '}
+            orders this shift
+          </span>
+          <span className="text-sm text-[var(--fl-ink-2)]">
+            Opening float{' '}
+            <span className="fl-mono font-semibold text-[var(--fl-ink)]">
+              {formatGHS(Number(data.activeSession.openingFloat ?? 0))}
+            </span>
+          </span>
+          {(data.attention.staleOrders.length ?? 0) > 0 && (
+            <StatusChip label={`${data.attention.staleOrders.length} waiting`} tone="attention" icon={Clock} />
           )}
         </div>
-      </div>
+      )}
 
-      {/* KPI cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard title="Today's Revenue" value={formatCurrency(data?.today.revenue ?? 0)}
-          trend={data?.today.revenueTrend} accent="green"
-          icon={<DollarSign size={16} className="text-[#5ecf4f]"/>} />
-        <StatCard title="Today's Orders" value={String(data?.today.orders ?? 0)}
-          accent="blue" icon={<ShoppingBag size={16} className="text-blue-400"/>} />
-        <StatCard title="Month Revenue" value={formatCurrency(data?.month.revenue ?? 0)}
-          sub={`${data?.month.orders ?? 0} orders`} accent="purple"
-          icon={<TrendingUp size={16} className="text-purple-400"/>} />
-        <StatCard title="Stock Value" value={formatCurrency(data?.stockValue ?? 0)}
-          accent="orange" icon={<Package size={16} className="text-orange-400"/>} />
-      </div>
-
-      {/* Revenue trend chart */}
-      <Card padding="none">
-        <CardHeader className="px-5 pt-5 pb-4">
-          <CardTitle>30-Day Revenue Trend</CardTitle>
-        </CardHeader>
-        <div className="px-4 pb-5 h-52">
-          <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={trendData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
-              <defs>
-                <linearGradient id="revGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#349f2d" stopOpacity={0.3}/>
-                  <stop offset="95%" stopColor="#349f2d" stopOpacity={0}/>
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="#2b2f2b" vertical={false}/>
-              <XAxis dataKey="date" tick={{ fill: '#aba8a4', fontSize: 10 }} tickLine={false} axisLine={false}
-                interval={Math.floor(trendData.length / 6)}/>
-              <YAxis tick={{ fill: '#aba8a4', fontSize: 10 }} tickLine={false} axisLine={false}
-                tickFormatter={v => `₵${v >= 1000 ? `${(v/1000).toFixed(1)}k` : v}`}/>
-              <Tooltip content={<CustomTooltip/>}/>
-              <Area type="monotone" dataKey="revenue" stroke="#349f2d" strokeWidth={2}
-                fill="url(#revGrad)" dot={false} activeDot={{ r: 4, fill: '#5ecf4f' }}/>
-            </AreaChart>
-          </ResponsiveContainer>
-        </div>
-      </Card>
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Recent orders */}
-        <div className="lg:col-span-2">
-          <Card padding="none">
-            <CardHeader className="px-5 pt-5 pb-0">
-              <CardTitle>Recent Orders</CardTitle>
-              <Link href="/admin/orders" className="text-xs text-[#349f2d] hover:text-[#5ecf4f] flex items-center gap-1 transition-colors">
-                View all <ArrowRight size={12}/>
-              </Link>
-            </CardHeader>
-            <div className="divide-y divide-[#2b2f2b]">
-              {(data?.recentOrders ?? []).length === 0 ? (
-                <div className="px-5 py-8 text-center text-sm text-[#aba8a4]">No orders yet today</div>
-              ) : data?.recentOrders.map(order => (
-                <div key={order.id} className="px-5 py-3 flex items-center gap-4">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-0.5">
-                      <span className="text-sm font-medium text-[#f4efeb]">{order.orderNumber}</span>
-                      <OrderStatusBadge status={order.status}/>
-                    </div>
-                    <p className="text-xs text-[#aba8a4] truncate">
-                      {order.items?.map((i: any) => `${i.quantity}× ${i.menuItem?.name ?? i.name}`).join(', ')}
-                    </p>
-                  </div>
-                  <div className="text-right shrink-0">
-                    <p className="text-sm font-semibold text-[#f4efeb]">{formatCurrency(order.total)}</p>
-                    <div className="flex items-center justify-end gap-1.5 mt-0.5">
-                      <PaymentBadge method={order.paymentMethod}/>
-                      <span className="text-xs text-[#aba8a4]">{formatTime(order.createdAt)}</span>
-                    </div>
-                  </div>
-                </div>
-              ))}
+      {/* ── How is today going? ─────────────────────────────────────────── */}
+      <SectionCard
+        title="How is today going?"
+        explainer="Money collected so far today, compared with the same weekday last week — restaurants run on a weekly rhythm, so last Monday tells you more than yesterday did."
+        deepLink="/admin/reports"
+        deepLinkLabel="Reports"
+      >
+        {hasSoldToday ? (
+          <>
+            <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+              <StatCard
+                label="Collected today"
+                value={t?.revenue ?? 0}
+                money
+                delta={t?.revenueTrend ?? null}
+                deltaLabel="vs same day last week"
+              />
+              <StatCard label="Orders" value={t?.orders ?? 0} />
+              <StatCard label="Average ticket" value={t?.averageTicket ?? 0} money />
+              <StatCard
+                label="Top seller so far"
+                value={t?.topSeller?.name ?? '—'}
+                countUp={false}
+                subline={t?.topSeller ? `${t.topSeller.qty} sold today` : undefined}
+              />
             </div>
-          </Card>
-        </div>
 
-        {/* Right column */}
-        <div className="space-y-4">
-          {/* Payment mix */}
-          {paymentPieData.length > 0 && (
-            <Card padding="none">
-              <CardHeader className="px-5 pt-5 pb-2">
-                <CardTitle>Today's Payment Mix</CardTitle>
-              </CardHeader>
-              <div className="px-4 pb-4">
-                <div className="h-32">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie data={paymentPieData} cx="50%" cy="50%" innerRadius={35} outerRadius={55}
-                        dataKey="value" paddingAngle={3}>
-                        {paymentPieData.map((entry, i) => (
-                          <Cell key={i} fill={PAYMENT_COLORS[entry.name] ?? '#6b7280'}/>
-                        ))}
-                      </Pie>
-                      <Tooltip formatter={(v: any) => formatCurrency(v)} contentStyle={{ background: '#191c19', border: '1px solid #2b2f2b', borderRadius: 12, fontSize: 11 }}/>
-                    </PieChart>
-                  </ResponsiveContainer>
-                </div>
-                <div className="space-y-1 mt-1">
-                  {paymentPieData.map(d => (
-                    <div key={d.name} className="flex items-center justify-between text-xs">
-                      <div className="flex items-center gap-2">
-                        <div className="w-2 h-2 rounded-full" style={{ background: PAYMENT_COLORS[d.name] ?? '#6b7280' }}/>
-                        <span className="text-[#aba8a4]">{d.name}</span>
-                      </div>
-                      <span className="text-[#f4efeb] font-medium">{formatCurrency(d.value)}</span>
+            {channels.length > 0 && (
+              <div className="mt-5">
+                <p className="fl-label mb-2.5">Where the orders came from</p>
+                <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                  {channels.map(([channel, v]) => (
+                    <div
+                      key={channel}
+                      className="rounded-xl border border-[var(--fl-line)] bg-[var(--fl-surface-2)] px-3.5 py-3"
+                    >
+                      <p className="text-[13px] font-medium text-[var(--fl-ink)]">
+                        {CHANNEL_LABELS[channel] ?? channel}
+                      </p>
+                      <p className="fl-mono mt-1 text-sm tabular-nums text-[var(--fl-ink-2)]">
+                        {v.orders} order{v.orders === 1 ? '' : 's'} · {formatGHS(v.revenue, { decimals: false })}
+                      </p>
                     </div>
                   ))}
                 </div>
               </div>
-            </Card>
-          )}
+            )}
+          </>
+        ) : (
+          <div className="space-y-4">
+            <EmptyState
+              icon={Sunrise}
+              title="No sales yet — service starts when you open the register."
+              body={
+                (data?.yesterday.orders ?? 0) > 0
+                  ? `Yesterday you closed on ${formatGHS(data!.yesterday.revenue)} from ${data!.yesterday.orders} orders. This week so far: ${formatGHS(data?.week.revenue ?? 0)}.`
+                  : `This week so far: ${formatGHS(data?.week.revenue ?? 0)}.`
+              }
+              actionLabel="Open POS Register"
+              actionHref="/pos"
+            />
+            {lowStock.length > 0 && (
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[rgba(232,134,46,0.35)] bg-[var(--fl-accent-soft)] px-4 py-3">
+                <p className="text-[13px] text-[var(--fl-ink)]">
+                  Before service: {lowStock.length} ingredient{lowStock.length === 1 ? ' is' : 's are'} low.
+                  Build today&apos;s market list.
+                </p>
+                <Link
+                  href="/admin/inventory"
+                  className="inline-flex min-h-[36px] items-center gap-1.5 rounded-full bg-[var(--fl-accent)] px-3.5 text-[13px] font-semibold text-white"
+                >
+                  Market list <ArrowRight size={13} />
+                </Link>
+              </div>
+            )}
+          </div>
+        )}
+      </SectionCard>
 
-          {/* Low stock */}
-          <Card padding="none">
-            <CardHeader className="px-5 pt-5 pb-0">
-              <CardTitle>Low Stock</CardTitle>
-              <Link href="/admin/inventory" className="text-xs text-[#349f2d] hover:text-[#5ecf4f] flex items-center gap-1">
-                Inventory <ArrowRight size={12}/>
-              </Link>
-            </CardHeader>
-            <div className="divide-y divide-[#2b2f2b]">
-              {(data?.lowStockAlerts ?? []).length === 0 ? (
-                <div className="px-5 py-6 text-center">
-                  <Package size={20} className="text-[#349f2d] mx-auto mb-1.5"/>
-                  <p className="text-xs text-[#aba8a4]">All stock OK</p>
-                </div>
-              ) : data?.lowStockAlerts.slice(0, 5).map(item => (
-                <div key={item.id} className="px-5 py-2.5 flex items-center gap-3">
-                  <AlertTriangle size={13} className="text-yellow-400 shrink-0"/>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs font-medium text-[#f4efeb] truncate">{item.name}</p>
-                    <p className="text-[10px] text-[#aba8a4]">{Number(item.quantity).toFixed(1)} {item.unit}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </Card>
+      {/* ── Are we making money? ────────────────────────────────────────── */}
+      <SectionCard
+        title="Are we making money?"
+        explainer="Money left = sales collected − ingredient costs from your recipes − logged expenses. Waste and comps are included once you log them."
+        deepLink="/admin/reports"
+        deepLinkLabel="Full picture"
+      >
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <StatCard label="Collected this week" value={w?.revenue ?? 0} money />
+          <StatCard
+            label="Ingredient cost"
+            value={w?.ingredientCost ?? 0}
+            money
+            subline={
+              (w?.recipeCoverage ?? 0) < 100
+                ? `Only ${w?.recipeCoverage ?? 0}% of what you sold has a recipe, so the real cost is higher.`
+                : 'Every item sold this week is costed from its recipe.'
+            }
+          />
+          <StatCard label="Logged expenses" value={w?.expenses ?? 0} money />
+          <StatCard
+            label="Money left"
+            value={w?.moneyLeft ?? 0}
+            money
+            attention={(w?.moneyLeft ?? 0) < 0}
+            subline={
+              (w?.moneyLeft ?? 0) < 0
+                ? 'You are spending more than you collected this week.'
+                : 'What is left after ingredients and logged expenses.'
+            }
+          />
         </div>
+
+        {(w?.recipeCoverage ?? 0) < 100 && (
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[var(--fl-line)] bg-[var(--fl-surface-2)] px-4 py-3">
+            <p className="text-[13px] text-[var(--fl-ink-2)]">
+              Add recipes to the rest of your menu and this number becomes the truth, not an estimate.
+            </p>
+            <Link
+              href="/admin/boms"
+              className="inline-flex min-h-[36px] items-center gap-1.5 rounded-full border border-[var(--fl-line)] px-3.5 text-[13px] font-medium text-[var(--fl-brand)] hover:bg-[var(--fl-brand-soft)]"
+            >
+              Recipes <ArrowRight size={13} />
+            </Link>
+          </div>
+        )}
+      </SectionCard>
+
+      {/* ── What needs attention? ───────────────────────────────────────── */}
+      <SectionCard
+        title="What needs attention?"
+        explainer="Everything open right now, in one place. When this section is empty, nothing is waiting on you."
+        attention={attention.length > 0}
+      >
+        {attention.length === 0 ? (
+          <EmptyState
+            icon={Package}
+            title="Nothing needs your attention right now."
+            body="Stock is above par, no shifts are hanging open and no orders are overdue."
+          />
+        ) : (
+          <ul className="space-y-2.5" role="list">
+            {attention.map(item => (
+              <li
+                key={item.id}
+                className="flex flex-wrap items-start justify-between gap-3 rounded-xl border border-[rgba(232,134,46,0.35)] bg-[var(--fl-surface)] px-4 py-3.5"
+              >
+                <div className="min-w-0 flex-1">
+                  <p className="flex items-center gap-2 text-sm font-semibold text-[var(--fl-ink)]">
+                    <AlertTriangle size={14} className="shrink-0 text-[var(--fl-accent)]" />
+                    {item.label}
+                  </p>
+                  <p className="mt-1 text-[13px] leading-relaxed text-[var(--fl-ink-2)]">{item.detail}</p>
+                </div>
+                <Link
+                  href={item.href}
+                  className="inline-flex min-h-[36px] shrink-0 items-center gap-1.5 rounded-full bg-[var(--fl-accent)] px-3.5 text-[13px] font-semibold text-white transition-opacity hover:opacity-90"
+                >
+                  {item.actionLabel} <ArrowRight size={13} />
+                </Link>
+              </li>
+            ))}
+          </ul>
+        )}
+      </SectionCard>
+
+      <div className="grid gap-5 lg:grid-cols-2">
+        {/* ── Today's orders ────────────────────────────────────────────── */}
+        <SectionCard
+          title="What has sold today?"
+          explainer="Every ticket rung up since midnight, newest first."
+          deepLink="/admin/orders"
+          deepLinkLabel="All orders"
+        >
+          {(data?.recentOrders ?? []).length === 0 ? (
+            <EmptyState
+              icon={ShoppingBag}
+              title="No tickets yet today."
+              body="Orders appear here the moment the register rings one up."
+              actionLabel="Open POS Register"
+              actionHref="/pos"
+            />
+          ) : (
+            <ul className="divide-y divide-[var(--fl-line)]" role="list">
+              {data!.recentOrders.map(order => (
+                <li key={order.id} className="flex items-start justify-between gap-4 py-3 first:pt-0 last:pb-0">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="fl-mono text-[13px] font-semibold text-[var(--fl-ink)]">
+                        {order.orderNumber}
+                      </span>
+                      <StatusChip label={order.status} />
+                    </div>
+                    <p className="mt-1 truncate text-[13px] text-[var(--fl-ink-2)]">
+                      {order.items?.map((i: any) => `${i.quantity}× ${i.menuItem?.name ?? i.name}`).join(', ')}
+                    </p>
+                  </div>
+                  <div className="shrink-0 text-right">
+                    <p className="fl-mono text-sm font-semibold tabular-nums text-[var(--fl-ink)]">
+                      {formatGHS(Number(order.total))}
+                    </p>
+                    <p className="fl-mono mt-0.5 text-[11px] text-[var(--fl-ink-3)]">
+                      {new Date(order.createdAt).toLocaleTimeString('en-GH', { hour: '2-digit', minute: '2-digit' })}
+                    </p>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </SectionCard>
+
+        {/* ── Market list ───────────────────────────────────────────────── */}
+        <SectionCard
+          title="What should we buy?"
+          explainer="Ingredients at or below their par level, with a rough quantity and cost for the market run."
+          deepLink="/admin/inventory"
+          deepLinkLabel="Inventory"
+        >
+          <DataTable
+            columns={stockColumns}
+            rows={lowStock}
+            rowKey={r => r.id}
+            empty={
+              <EmptyState
+                icon={Package}
+                title="Every ingredient is above its par level."
+                body={
+                  data?.stockValue
+                    ? `You are holding about ${formatGHS(data.stockValue)} of stock.`
+                    : 'Set par levels on your ingredients and this becomes your daily market list.'
+                }
+                actionLabel="Open inventory"
+                actionHref="/admin/inventory"
+              />
+            }
+          />
+        </SectionCard>
       </div>
 
-      {/* Top items bar chart */}
+      {/* ── This month's best sellers ───────────────────────────────────── */}
       {(data?.topItems ?? []).length > 0 && (
-        <Card padding="none">
-          <CardHeader className="px-5 pt-5 pb-4">
-            <CardTitle>Top Items This Month</CardTitle>
-            <span className="text-xs text-[#aba8a4]">by quantity sold</span>
-          </CardHeader>
-          <div className="px-4 pb-5 h-52">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={data?.topItems} layout="vertical" margin={{ top: 0, right: 8, left: 0, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#2b2f2b" horizontal={false}/>
-                <XAxis type="number" tick={{ fill: '#aba8a4', fontSize: 10 }} tickLine={false} axisLine={false}/>
-                <YAxis type="category" dataKey="name" width={110} tick={{ fill: '#aba8a4', fontSize: 10 }} tickLine={false} axisLine={false}/>
-                <Tooltip contentStyle={{ background: '#191c19', border: '1px solid #2b2f2b', borderRadius: 12, fontSize: 11 }}/>
-                <Bar dataKey="qty" fill="#349f2d" radius={[0, 4, 4, 0]} name="Sold"/>
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </Card>
+        <SectionCard
+          title="What sells best this month?"
+          explainer="Ranked by plates sold. The top few are what your kitchen should never run out of."
+          deepLink="/admin/reports"
+          deepLinkLabel="Reports"
+        >
+          <ul className="space-y-2" role="list">
+            {data!.topItems.map((item, index) => {
+              const max = data!.topItems[0]?.qty || 1;
+              return (
+                <li key={item.name} className="flex items-center gap-3">
+                  <span className="fl-mono w-5 shrink-0 text-[11px] text-[var(--fl-ink-3)]">
+                    {index + 1}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-baseline justify-between gap-3">
+                      <span className="truncate text-[13px] font-medium text-[var(--fl-ink)]">{item.name}</span>
+                      <span className="fl-mono shrink-0 text-[13px] tabular-nums text-[var(--fl-ink-2)]">
+                        {item.qty} · {formatGHS(item.revenue, { decimals: false })}
+                      </span>
+                    </div>
+                    <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-[var(--fl-surface-2)]">
+                      <div
+                        className="h-full rounded-full bg-[var(--fl-brand)]"
+                        style={{ width: `${Math.max(4, (item.qty / max) * 100)}%` }}
+                      />
+                    </div>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        </SectionCard>
       )}
     </div>
   );

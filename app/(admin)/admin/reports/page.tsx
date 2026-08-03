@@ -156,10 +156,12 @@ export default function ReportsPage() {
     .slice(0, 8)
     .map(([name, value]) => ({ name: name.length > 12 ? name.slice(0, 12) + '…' : name, value, full: name }));
 
+  /* Reports are named for the question an owner actually asks, not the
+     accounting term. "P&L" means nothing at 6am; "What's left?" does. */
   const tabs: { id: Tab; label: string; icon: React.ReactNode }[] = [
-    { id: 'pl', label: 'P&L', icon: <TrendingUp size={14} /> },
-    { id: 'sales', label: 'Sales Analysis', icon: <BarChart3 size={14} /> },
-    { id: 'sessions', label: 'Shift Sessions', icon: <Clock size={14} /> },
+    { id: 'sales', label: "What sold?", icon: <BarChart3 size={14} /> },
+    { id: 'pl', label: "What's left?", icon: <TrendingUp size={14} /> },
+    { id: 'sessions', label: 'Who sold it?', icon: <Clock size={14} /> },
   ];
 
   return (

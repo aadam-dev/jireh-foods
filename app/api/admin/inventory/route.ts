@@ -3,6 +3,7 @@ import { prisma } from '@/src/lib/prisma';
 import { z } from 'zod';
 import { UserRole } from '@prisma/client';
 import { requireAuth, requireRoles, applyInventoryDelta } from '@/src/lib/api-auth';
+import { isInventoryTrackingEnabled } from '@/src/lib/settings';
 
 const itemSchema = z.object({
   name: z.string().min(1),
@@ -47,12 +48,14 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ item, transactions: item.transactions });
   }
 
-  // All items list
+  // All items list — include the tracking flag so the page can show whether
+  // sales are actually deducting stock (defaults OFF for this informal business).
   const items = await prisma.inventoryItem.findMany({
     where: { isActive: true },
     orderBy: { name: 'asc' },
   });
-  return NextResponse.json(items);
+  const inventoryTracking = await isInventoryTrackingEnabled();
+  return NextResponse.json({ items, inventoryTracking });
 }
 
 export async function POST(req: NextRequest) {

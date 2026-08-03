@@ -40,7 +40,11 @@ export async function POST(req: NextRequest) {
   const session = authResult;
 
   const body = await req.json();
-  const data = createSchema.parse(body);
+  const parsed = createSchema.safeParse(body);
+  if (!parsed.success) {
+    return NextResponse.json({ error: 'Invalid input', details: parsed.error.flatten() }, { status: 400 });
+  }
+  const data = parsed.data;
 
   if (!canAssignRole(authResult.user.role, data.role as UserRole)) {
     return NextResponse.json({ error: 'You cannot assign that role' }, { status: 403 });

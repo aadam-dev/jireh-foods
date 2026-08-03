@@ -1,24 +1,19 @@
 "use client";
 
-import { useState, useEffect } from "react";
+/* The hero sits at 55% opacity under two gradient layers, so it is decoration
+   rather than content — it gets a low-quality JPEG (341KB, down from an 809KB
+   PNG) and the section stays readable on its own if the image never arrives.
+   There is deliberately no stock-photo fallback: showing someone else's food on
+   a real restaurant's site is worse than showing none. */
 
-const FALLBACK_IMAGE =
-  "https://images.unsplash.com/photo-1604908176997-125188eb3dd3?w=1920&q=80";
+const HERO_IMAGE = "/jireh/hero-bg.jpg";
 
 export function HeroBackground({ children }: { children: React.ReactNode }) {
-  const [bgImage, setBgImage] = useState("/jireh/hero_new.png");
-
-  useEffect(() => {
-    const img = new Image();
-    img.onerror = () => setBgImage(FALLBACK_IMAGE);
-    img.src = "/jireh/hero_new.png";
-  }, []);
-
   return (
     <header className="relative flex min-h-[100dvh] flex-col justify-end bg-[var(--surface-dark)] px-6 pb-16 pt-24 text-white md:justify-center md:pb-24 md:pt-32">
       <div
-        className="absolute inset-0 bg-cover bg-center opacity-55 transition-opacity duration-500"
-        style={{ backgroundImage: `url("${bgImage}")` }}
+        className="absolute inset-0 bg-cover bg-center opacity-55"
+        style={{ backgroundImage: `url("${HERO_IMAGE}")` }}
         aria-hidden
       />
       <div

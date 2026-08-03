@@ -37,6 +37,22 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   }
 
   const data = parsed.data;
+
+  // Load the *target* user first. Authorization must consider the target's
+  // current role, not only the role being assigned — otherwise a MANAGER could
+  // reset an OWNER's password / deactivate them by omitting `role` from the body
+  // (account takeover / privilege escalation).
+  const target = await prisma.user.findUnique({
+    where: { id: params.id },
+    select: { id: true, role: true },
+  });
+  if (!target) return NextResponse.json({ error: 'User not found' }, { status: 404 });
+
+  // Only an OWNER may modify another OWNER account (password, email, role, status).
+  if (target.role === UserRole.OWNER && authResult.user.role !== UserRole.OWNER) {
+    return NextResponse.json({ error: 'Only an owner can modify an owner account' }, { status: 403 });
+  }
+
   if (data.role && !canAssignRole(authResult.user.role, data.role as UserRole)) {
     return NextResponse.json({ error: 'You cannot assign that role' }, { status: 403 });
   }

@@ -10,6 +10,7 @@ import { Eye, EyeOff, Lock, Mail, AlertCircle } from 'lucide-react';
 import Image from 'next/image';
 import { Button } from '@/src/components/ui/Button';
 import { Input } from '@/src/components/ui/Input';
+import { DEVELOPER_CREDIT } from '@/src/lib/developer-credit';
 
 const schema = z.object({
   email: z.string().email('Enter a valid email address'),
@@ -76,7 +77,7 @@ export default function LoginForm() {
             <Image src="/jireh/logo.jpg" alt="Jireh Natural Foods" width={64} height={64} className="object-contain" />
           </div>
           <h1 className="text-2xl font-bold text-[#f4efeb] font-serif">Jireh Natural Foods</h1>
-          <p className="text-sm text-[#aba8a4] mt-1">Back Office System</p>
+          <p className="text-sm text-[#aba8a4] mt-1">Staff sign in — register &amp; back office</p>
         </div>
 
         <div className="bg-[#191c19] border border-[#2b2f2b] rounded-2xl p-7">
@@ -96,6 +97,12 @@ export default function LoginForm() {
               type="email"
               placeholder="you@jireh.com"
               autoComplete="email"
+              inputMode="email"
+              // Phone keyboards capitalise and autocorrect by default, which
+              // silently mangles the address and reads as a wrong password.
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
               icon={<Mail size={15} />}
               error={errors.email?.message}
               {...register('email')}
@@ -127,16 +134,29 @@ export default function LoginForm() {
           </form>
         </div>
 
-        <div className="text-center mt-6 space-y-1">
+        <div className="mt-5 text-center">
+          <a
+            href="/"
+            className="inline-flex min-h-[44px] items-center gap-2 rounded-full px-4 text-sm text-[#aba8a4] transition-colors hover:text-[#f4efeb]"
+          >
+            ← Back to the website
+          </a>
+        </div>
+
+        <div className="text-center mt-2 space-y-1">
           <p className="text-xs text-[#aba8a4]/60">
             © {new Date().getFullYear()} Jireh Natural Foods · Adenta, Accra
           </p>
           <p className="text-[11px] text-[#aba8a4]/40">
-            powered by{' '}
-            <a href="https://aadam.vercel.app" target="_blank" rel="noopener noreferrer" className="hover:text-[#aba8a4]/70 transition-colors underline underline-offset-2">
-              aadam
+            {DEVELOPER_CREDIT.tagline} by{' '}
+            <a
+              href={DEVELOPER_CREDIT.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline underline-offset-2 transition-colors hover:text-[#aba8a4]/70"
+            >
+              {DEVELOPER_CREDIT.domain}
             </a>
-            {' '}· +233 263 039 818
           </p>
         </div>
       </div>

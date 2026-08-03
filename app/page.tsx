@@ -5,7 +5,7 @@ import { SectionReveal } from "./components/SectionReveal";
 import { HeroBackground } from "./components/HeroBackground";
 import { JirehLogo } from "./components/JirehLogo";
 import { MapEmbed } from "./components/MapEmbed";
-import { MapPin, Phone, MessageCircle, ShoppingBag, Utensils, CupSoda, Lock } from "lucide-react";
+import { MapPin, Phone, MessageCircle, ShoppingBag, Utensils, CupSoda, Lock, Trophy } from "lucide-react";
 
 const PHONE_DISPLAY = "055 113 3481";
 const PHONE_TEL = "tel:+233551133481";
@@ -83,7 +83,28 @@ const JUICE_MENU = [
   { name: "Sobolo", price: 10 },
   { name: "Millet drink", price: 10 },
   { name: "Pineapple drink", price: 10 },
+  { name: "Brukina", price: 15 },
 ];
+
+const SNACK_MENU = [
+  { name: "Meat pie", price: 10 },
+  { name: "Buns", price: 10 },
+];
+
+/** Feleb Concepts Honours — trophy photo lives at /jireh/award.jpg */
+const AWARD = {
+  year: 2026,
+  title: "Start-Up Food Business of the Year",
+  presenter: "Feleb Concepts Honours",
+  image: "/jireh/award.jpg",
+  blurb:
+    "Recognised for building a natural-food kitchen from the ground up in Adenta — consistent quality, honest ingredients and a community that keeps coming back.",
+  points: [
+    "Judged on growth, food quality and customer loyalty",
+    "Zero monosodium cooking from day one",
+    "Serving Adenta Housing Down, dine-in and delivery",
+  ],
+};
 
 const FEATURED_ITEMS = [
   {
@@ -108,7 +129,7 @@ const FEATURED_ITEMS = [
     note: "Comforting soup with deep traditional flavor.",
     tag: "Classic",
     priceLabel: "GH₵ 50 – 60",
-    image: "/jireh/fufu.png",
+    image: "/jireh/fufu.jpg",
   },
 ];
 
@@ -134,8 +155,47 @@ const GALLERY_ITEMS = [
   { src: "/jireh/juice2.jpg", alt: "Fresh bottled pineapple juice" },
 ];
 
+type LiveCategory = {
+  id: string;
+  name: string;
+  slug: string;
+  items: { id: string; name: string; description: string | null; price: number; isPopular: boolean }[];
+};
+
+/** Categories whose items are drinks/snacks rather than plated food. */
+const DRINK_SLUGS = ["juices", "drinks", "beverages"];
+const SNACK_SLUGS = ["snacks", "pastries"];
+
 export default function Home() {
   const [activeSection, setActiveSection] = useState("");
+  /** null = still loading or unavailable; falls back to the built-in menu. */
+  const [liveMenu, setLiveMenu] = useState<LiveCategory[] | null>(null);
+
+  // Availability sync: an item switched off in the menu manager disappears from
+  // the register AND from here. If the feed fails we keep the built-in menu, so
+  // the page is never blank for a customer.
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/menu")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (!cancelled && Array.isArray(data) && data.length > 0) setLiveMenu(data);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const liveDrinks = liveMenu
+    ?.filter((c) => DRINK_SLUGS.includes(c.slug))
+    .flatMap((c) => c.items);
+  const liveSnacks = liveMenu
+    ?.filter((c) => SNACK_SLUGS.includes(c.slug))
+    .flatMap((c) => c.items);
+
+  const drinkMenu = liveDrinks?.length ? liveDrinks : JUICE_MENU;
+  const snackMenu = liveSnacks?.length ? liveSnacks : SNACK_MENU;
 
   useEffect(() => {
     const observer = new IntersectionObserver(
@@ -164,11 +224,31 @@ export default function Home() {
     <div className="min-h-screen bg-[var(--background)]">
       <div id="home" className="fixed left-0 right-0 top-0 z-50 border-b border-white/10 bg-[var(--surface-dark)]/85 backdrop-blur-xl">
         <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-6">
-          <a href="#" className="flex items-center gap-2" aria-label="Jireh Natural Foods home">
+          <a href="#home" className="flex items-center gap-2" aria-label="Jireh Natural Foods home">
             <JirehLogo size={42} />
           </a>
+
+          {/* Mobile: the nav links collapse away, so keep the two actions that matter reachable */}
+          <div className="flex items-center gap-2 md:hidden">
+            <a
+              href="#menu"
+              className="inline-flex min-h-[40px] items-center rounded-full border border-white/20 bg-white/5 px-4 text-sm font-semibold text-white transition hover:bg-white/10"
+            >
+              Menu
+            </a>
+            <a
+              href={WHATSAPP_ORDER}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex min-h-[40px] items-center gap-1.5 rounded-full bg-[var(--accent)] px-4 text-sm font-semibold text-white transition hover:bg-[var(--accent-hover)]"
+            >
+              <MessageCircle className="h-4 w-4 shrink-0" /> Order
+            </a>
+          </div>
+
           <nav className="hidden items-center gap-7 text-sm font-medium md:flex">
             <a href="#about" className={navItemClass("about")}>About</a>
+            <a href="#award" className={navItemClass("award")}>Award</a>
             <a href="#menu" className={navItemClass("menu")}>Menu</a>
             <a href="#visit" className={navItemClass("visit")}>Visit</a>
             <a href="#contact" className={navItemClass("contact")}>Contact</a>
@@ -198,7 +278,7 @@ export default function Home() {
       <HeroBackground>
         <div className="flex flex-col items-center gap-6 pt-10">
           <span className="rounded-full border border-[var(--accent)]/30 bg-[var(--accent)]/10 px-4 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-[var(--accent-bright)]">
-            Adenta's natural food spot
+            Adenta&apos;s natural food spot
           </span>
           <div className="hidden md:block">
             <JirehLogo size={108} />
@@ -244,9 +324,21 @@ export default function Home() {
               <Phone className="w-5 h-5" /> Call now
             </a>
           </div>
-          <div className="mt-6 inline-flex items-center gap-2 rounded-full border border-[var(--border-strong)] bg-black/40 px-4 py-2 text-sm backdrop-blur">
-            <span className="font-semibold text-[var(--accent-bright)]">★ 4.3</span>
-            <span className="text-white/90">Bolt Food favourite in Adenta</span>
+          <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
+            <div className="inline-flex items-center gap-2 rounded-full border border-[var(--border-strong)] bg-black/40 px-4 py-2 text-sm backdrop-blur">
+              <span className="font-semibold text-[var(--accent-bright)]">★ 4.3</span>
+              <span className="text-white/90">Bolt Food favourite in Adenta</span>
+            </div>
+            <a
+              href="#award"
+              className="inline-flex items-center gap-2 rounded-full border border-[#e0b354]/40 bg-[#e0b354]/10 px-4 py-2 text-sm backdrop-blur transition hover:bg-[#e0b354]/20"
+            >
+              <Trophy className="h-4 w-4 shrink-0 text-[#e8c877]" />
+              <span className="text-left text-white/90">
+                <span className="font-semibold text-[#e8c877]">Award-winning</span>
+                <span className="hidden sm:inline"> — {AWARD.title} {AWARD.year}</span>
+              </span>
+            </a>
           </div>
           <div className="mt-5 grid w-full max-w-3xl grid-cols-1 gap-3 sm:grid-cols-3 z-20">
             <div className="rounded-2xl border border-white/10 bg-black/30 p-4 backdrop-blur shadow-lg">
@@ -296,6 +388,70 @@ export default function Home() {
         </SectionReveal>
 
         <SectionReveal className="mb-20 md:mb-28" delay={0.1}>
+          <div
+            id="award"
+            className="relative overflow-hidden rounded-3xl border border-[#e0b354]/20 bg-[var(--card)] p-6 shadow-[var(--shadow-soft)] sm:p-8 md:p-10"
+          >
+            {/* warm gold wash — the only place gold appears on the site */}
+            <div className="pointer-events-none absolute -right-24 -top-24 h-72 w-72 rounded-full bg-[#e0b354]/10 blur-3xl" />
+
+            <div className="relative grid items-center gap-8 md:grid-cols-[0.85fr_1.15fr] md:gap-12">
+              <div className="relative mx-auto w-full max-w-xs md:max-w-none">
+                <div className="overflow-hidden rounded-[1.5rem] border border-[#e0b354]/25 bg-[var(--surface-dark)] shadow-[var(--shadow-dark)]">
+                  <img
+                    src={AWARD.image}
+                    alt={`Jireh Natural Foods trophy — ${AWARD.title}, ${AWARD.presenter}`}
+                    className="h-full w-full object-cover"
+                    width={1050}
+                    height={1400}
+                    loading="lazy"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <p className="flex items-center gap-2 text-sm font-semibold uppercase tracking-[0.18em] text-[#e8c877]">
+                  <Trophy className="h-4 w-4" /> Award winner
+                </p>
+                <h2 className="mt-3 font-serif text-3xl font-semibold leading-tight text-[var(--foreground)] md:text-4xl">
+                  {AWARD.title}
+                </h2>
+                <p className="mt-2 text-sm font-medium uppercase tracking-[0.14em] text-[var(--muted)]">
+                  {AWARD.presenter} · {AWARD.year}
+                </p>
+                <p className="mt-5 text-lg leading-relaxed text-[var(--muted)]">{AWARD.blurb}</p>
+
+                <ul className="mt-6 grid gap-2.5" role="list">
+                  {AWARD.points.map((point) => (
+                    <li key={point} className="flex items-start gap-3 text-sm text-[var(--muted)]">
+                      <span className="mt-[7px] h-1.5 w-1.5 shrink-0 rounded-full bg-[#e0b354]" />
+                      <span>{point}</span>
+                    </li>
+                  ))}
+                </ul>
+
+                <div className="mt-8 flex flex-wrap gap-3">
+                  <a
+                    href={WHATSAPP_ORDER}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-2 rounded-full bg-[var(--accent)] px-6 py-3 font-semibold text-white transition hover:-translate-y-0.5 hover:bg-[var(--accent-hover)]"
+                  >
+                    <MessageCircle className="h-5 w-5" /> Taste the award winner
+                  </a>
+                  <a
+                    href="#menu"
+                    className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-[var(--surface-light)] px-6 py-3 font-semibold text-[var(--foreground)] transition hover:border-[#e0b354]/40 hover:text-[#e8c877]"
+                  >
+                    See the menu
+                  </a>
+                </div>
+              </div>
+            </div>
+          </div>
+        </SectionReveal>
+
+        <SectionReveal className="mb-20 md:mb-28" delay={0.1}>
           <div className="grid gap-8 rounded-3xl border border-white/5 bg-gradient-to-r from-[var(--surface-light)] to-[var(--surface-dark-soft)] p-8 shadow-[var(--shadow-soft)] md:grid-cols-[1fr_1.4fr] md:p-10 items-center">
             <div className="flex flex-col justify-center">
               <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[var(--accent)] flex items-center gap-2">
@@ -309,7 +465,7 @@ export default function Home() {
               </p>
             </div>
             <div className="relative overflow-hidden rounded-[20px] shadow-[var(--shadow-dark)] ring-1 ring-white/10 group">
-              <img src="/jireh/hero.jpg" alt="Jireh Natural Foods Kiosk" className="w-full object-cover h-64 md:h-[400px] transition-transform duration-700 group-hover:scale-105" />
+              <img src="/jireh/hero.jpg" alt="Jireh Natural Foods Kiosk" width={1200} height={800} loading="lazy" decoding="async" className="w-full object-cover h-64 md:h-[400px] transition-transform duration-700 group-hover:scale-105" />
               <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent pointer-events-none" />
             </div>
           </div>
@@ -342,6 +498,10 @@ export default function Home() {
                   <img
                     src={item.image}
                     alt={item.name}
+                    width={600}
+                    height={450}
+                    loading="lazy"
+                    decoding="async"
                     className="h-48 w-full object-cover transition duration-700 group-hover:scale-110"
                   />
                   <div className="absolute inset-0 bg-black/20 group-hover:bg-black/10 transition-colors" />
@@ -384,6 +544,10 @@ export default function Home() {
                 <img
                   src={item.src}
                   alt={item.alt}
+                  width={480}
+                  height={360}
+                  loading="lazy"
+                  decoding="async"
                   className="h-36 w-full object-cover transition duration-500 hover:scale-105 md:h-52"
                 />
               </div>
@@ -461,7 +625,7 @@ export default function Home() {
                 </div>
                 
                 <ul className="space-y-6" role="list">
-                  {JUICE_MENU.map((item) => (
+                  {drinkMenu.map((item) => (
                     <li key={item.name} className="group/item relative pb-6 border-b border-white/5 last:border-0 last:pb-0">
                       <div className="flex items-center justify-between gap-4">
                         <h4 className="text-lg font-medium text-[var(--foreground)] group-hover/item:text-[var(--accent-bright)] transition-colors">
@@ -474,6 +638,25 @@ export default function Home() {
                     </li>
                   ))}
                 </ul>
+
+                {/* Snacks — same counter, sold alongside the drinks */}
+                <div className="mt-10 border-t border-white/10 pt-8">
+                  <h4 className="font-serif text-2xl font-semibold text-[var(--foreground)]">Snacks</h4>
+                  <ul className="mt-5 space-y-6" role="list">
+                    {snackMenu.map((item) => (
+                      <li key={item.name} className="group/item relative pb-6 border-b border-white/5 last:border-0 last:pb-0">
+                        <div className="flex items-center justify-between gap-4">
+                          <h4 className="text-lg font-medium text-[var(--foreground)] transition-colors group-hover/item:text-[var(--accent-bright)]">
+                            {item.name}
+                          </h4>
+                          <span className="whitespace-nowrap rounded-lg bg-[var(--surface-dark)] px-3 py-1 text-lg font-semibold tabular-nums text-[var(--accent-bright)]">
+                            GH₵ {item.price.toFixed(2)}
+                          </span>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
               </div>
             </div>
 
@@ -579,7 +762,7 @@ export default function Home() {
                 <div className="flex flex-wrap items-center justify-center gap-4 sm:gap-6">
                   <a
                     href={PHONE_TEL}
-                    className="p-3 rounded-full bg-white/5 hover:bg-white/10 transition-colors border border-white/10 group"
+                    className="inline-flex h-12 w-12 items-center justify-center rounded-full bg-white/5 hover:bg-white/10 transition-colors border border-white/10 group"
                     title={`Call ${PHONE_DISPLAY}`}
                   >
                     <Phone className="w-6 h-6 text-[var(--accent-bright)] group-hover:scale-110 transition-transform" />
@@ -588,7 +771,7 @@ export default function Home() {
                     href={WHATSAPP}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="p-3 rounded-full bg-white/5 hover:bg-white/10 transition-colors border border-white/10 group"
+                    className="inline-flex h-12 w-12 items-center justify-center rounded-full bg-white/5 hover:bg-white/10 transition-colors border border-white/10 group"
                     title="WhatsApp"
                   >
                     <MessageCircle className="w-6 h-6 text-[var(--accent-bright)] group-hover:scale-110 transition-transform" />
@@ -597,7 +780,7 @@ export default function Home() {
                     href={TIKTOK}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="p-3 rounded-full bg-white/5 hover:bg-white/10 transition-colors border border-white/10 group"
+                    className="inline-flex h-12 w-12 items-center justify-center rounded-full bg-white/5 hover:bg-white/10 transition-colors border border-white/10 group"
                     title={`TikTok @${SOCIAL_HANDLE}`}
                   >
                     <TikTok className="w-6 h-6 text-white group-hover:scale-110 transition-transform" />
@@ -606,7 +789,7 @@ export default function Home() {
                     href={FACEBOOK}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="p-3 rounded-full bg-white/5 hover:bg-white/10 transition-colors border border-white/10 group"
+                    className="inline-flex h-12 w-12 items-center justify-center rounded-full bg-white/5 hover:bg-white/10 transition-colors border border-white/10 group"
                     title={`Facebook @${SOCIAL_HANDLE}`}
                   >
                     <Facebook className="w-6 h-6 text-white group-hover:scale-110 transition-transform" />
@@ -615,7 +798,7 @@ export default function Home() {
                     href={INSTAGRAM}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="p-3 rounded-full bg-white/5 hover:bg-white/10 transition-colors border border-white/10 group"
+                    className="inline-flex h-12 w-12 items-center justify-center rounded-full bg-white/5 hover:bg-white/10 transition-colors border border-white/10 group"
                     title={`Instagram @${SOCIAL_HANDLE}`}
                   >
                     <Instagram className="w-6 h-6 text-white group-hover:scale-110 transition-transform" />
@@ -635,16 +818,16 @@ export default function Home() {
               Authentic Ghanaian dining with grilled specials, wholesome juices, and a commitment to zero monosodium foods.
             </p>
             <div className="mt-6 flex flex-wrap gap-4">
-              <a href={WHATSAPP} target="_blank" rel="noopener noreferrer" className="p-2 rounded-full bg-white/5 text-[var(--muted)] hover:bg-[var(--accent)] hover:text-white transition-colors" title="WhatsApp">
+              <a href={WHATSAPP} target="_blank" rel="noopener noreferrer" className="inline-flex h-11 w-11 items-center justify-center rounded-full bg-white/5 text-[var(--muted)] hover:bg-[var(--accent)] hover:text-white transition-colors" title="WhatsApp">
                 <MessageCircle className="w-5 h-5" />
               </a>
-              <a href={TIKTOK} target="_blank" rel="noopener noreferrer" className="p-2 rounded-full bg-white/5 text-[var(--muted)] hover:bg-black hover:text-[#fe2c55] transition-colors" title={`TikTok @${SOCIAL_HANDLE}`}>
+              <a href={TIKTOK} target="_blank" rel="noopener noreferrer" className="inline-flex h-11 w-11 items-center justify-center rounded-full bg-white/5 text-[var(--muted)] hover:bg-black hover:text-[#fe2c55] transition-colors" title={`TikTok @${SOCIAL_HANDLE}`}>
                 <TikTok className="w-5 h-5" />
               </a>
-              <a href={FACEBOOK} target="_blank" rel="noopener noreferrer" className="p-2 rounded-full bg-white/5 text-[var(--muted)] hover:bg-[#1877F2] hover:text-white transition-colors" title={`Facebook @${SOCIAL_HANDLE}`}>
+              <a href={FACEBOOK} target="_blank" rel="noopener noreferrer" className="inline-flex h-11 w-11 items-center justify-center rounded-full bg-white/5 text-[var(--muted)] hover:bg-[#1877F2] hover:text-white transition-colors" title={`Facebook @${SOCIAL_HANDLE}`}>
                 <Facebook className="w-5 h-5" />
               </a>
-              <a href={INSTAGRAM} target="_blank" rel="noopener noreferrer" className="p-2 rounded-full bg-white/5 text-[var(--muted)] hover:bg-[#E4405F] hover:text-white transition-colors" title={`Instagram @${SOCIAL_HANDLE}`}>
+              <a href={INSTAGRAM} target="_blank" rel="noopener noreferrer" className="inline-flex h-11 w-11 items-center justify-center rounded-full bg-white/5 text-[var(--muted)] hover:bg-[#E4405F] hover:text-white transition-colors" title={`Instagram @${SOCIAL_HANDLE}`}>
                 <Instagram className="w-5 h-5" />
               </a>
             </div>
@@ -674,13 +857,14 @@ export default function Home() {
             >
               <ShoppingBag className="w-4 h-4" /> Order on Bolt Food
             </a>
+            {/* Staff use this daily on their phones — it must be findable and
+                tappable, while staying visually subordinate to customer CTAs. */}
             <a
               href="/login"
-              className="flex items-center gap-1.5 text-xs text-white/20 transition-colors hover:text-white/50"
-              aria-label="Staff login"
+              className="inline-flex min-h-[44px] items-center gap-2 rounded-full border border-white/15 bg-white/5 px-4 text-sm font-medium text-[var(--muted)] transition-colors hover:border-[var(--accent)]/50 hover:bg-[var(--accent)]/10 hover:text-[var(--accent-bright)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)] focus:ring-offset-2 focus:ring-offset-[var(--card)]"
             >
-              <Lock className="w-3 h-3" />
-              <span>Staff</span>
+              <Lock className="h-4 w-4 shrink-0" aria-hidden />
+              <span>Staff Login</span>
             </a>
           </div>
         </div>

@@ -10,6 +10,8 @@ import { Badge, PaymentBadge } from '@/src/components/ui/Badge';
 import { Modal, ConfirmDialog } from '@/src/components/ui/Modal';
 import { EmptyState } from '@/src/components/ui/EmptyState';
 import { StatCard } from '@/src/components/ui/StatCard';
+import { apiGet, apiSend, errorMessage } from '@/src/lib/api-client';
+import { useToast } from '@/src/components/admin/ui/toast';
 import { formatCurrency, formatDate } from '@/src/lib/utils';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -34,8 +36,10 @@ const PAYMENT_METHODS = [
 ];
 
 export default function ExpensesPage() {
+  const toast = useToast();
   const [data, setData] = useState<{ expenses: any[]; categories: any[] }>({ expenses: [], categories: [] });
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
   const [month, setMonth] = useState(new Date());
   const [addModal, setAddModal] = useState(false);
   const [deleteDialog, setDeleteDialog] = useState<{ open: boolean; id?: string; desc?: string }>({ open: false });
@@ -49,9 +53,14 @@ export default function ExpensesPage() {
   const fetchData = async () => {
     setLoading(true);
     const monthStr = format(month, 'yyyy-MM');
-    const res = await fetch(`/api/admin/expenses?month=${monthStr}`);
-    setData(await res.json());
-    setLoading(false);
+    try {
+      setData(await apiGet(`/api/admin/expenses?month=${monthStr}`));
+      setLoadError('');
+    } catch (err) {
+      setLoadError(errorMessage(err, 'Could not load expenses.'));
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => { fetchData(); }, [month]);
@@ -59,22 +68,26 @@ export default function ExpensesPage() {
   const onSubmit = async (values: FormValues) => {
     setSaving(true);
     try {
-      await fetch('/api/admin/expenses', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(values),
-      });
+      await apiSend('/api/admin/expenses', 'POST', values);
       reset({ paymentMethod: 'CASH', date: format(new Date(), 'yyyy-MM-dd') });
       await fetchData();
       setAddModal(false);
+      toast.success('Expense recorded.');
+    } catch (err) {
+      toast.error(errorMessage(err, 'Could not record that expense.'));
     } finally { setSaving(false); }
   };
 
   const handleDelete = async () => {
     if (!deleteDialog.id) return;
-    await fetch(`/api/admin/expenses?id=${deleteDialog.id}`, { method: 'DELETE' });
-    await fetchData();
-    setDeleteDialog({ open: false });
+    try {
+      await apiSend(`/api/admin/expenses?id=${deleteDialog.id}`, 'DELETE');
+      await fetchData();
+      setDeleteDialog({ open: false });
+      toast.success('Expense deleted.');
+    } catch (err) {
+      toast.error(errorMessage(err, 'Could not delete that expense.'));
+    }
   };
 
   const totalExpenses = data.expenses.reduce((s, e) => s + Number(e.amount), 0);
@@ -92,6 +105,11 @@ export default function ExpensesPage() {
 
   return (
     <div className="p-4 sm:p-6 max-w-7xl mx-auto space-y-5">
+      {loadError && (
+        <div className="flex items-start gap-3 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3">
+          <span className="text-sm text-red-400">{loadError}</span>
+        </div>
+      )}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-[#f4efeb] font-serif">Expenses</h1>
