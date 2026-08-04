@@ -14,3 +14,9 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 .vercel
+
+# Build artifacts — regenerated on every build, noisy in every diff
+tsconfig.tsbuildinfo
+
+# Editor/agent local state (launch.json is shared, settings.local.json is not)
+.claude/settings.local.json

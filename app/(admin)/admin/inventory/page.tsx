@@ -8,6 +8,9 @@ import { Input, Select, Textarea } from '@/src/components/ui/Input';
 import { Badge } from '@/src/components/ui/Badge';
 import { Modal } from '@/src/components/ui/Modal';
 import { EmptyState } from '@/src/components/ui/EmptyState';
+import { apiGet, apiSend, errorMessage } from '@/src/lib/api-client';
+import { useToast } from '@/src/components/admin/ui/toast';
+import { MarketList, WasteLog } from '@/src/components/admin/MarketList';
 import { formatCurrency, formatDateTime } from '@/src/lib/utils';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
@@ -47,8 +50,10 @@ const TX_TYPE_CONFIG: Record<string, { color: string; sign: string }> = {
 };
 
 export default function InventoryPage() {
+  const toast = useToast();
   const [items, setItems] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
   const [itemModal, setItemModal] = useState<{ open: boolean; item?: any }>({ open: false });
   const [txModal, setTxModal] = useState<{ open: boolean; item?: any }>({ open: false });
   const [historyItem, setHistoryItem] = useState<any | null>(null);
@@ -56,15 +61,24 @@ export default function InventoryPage() {
   const [saving, setSaving] = useState(false);
   const [searchQ, setSearchQ] = useState('');
   const [filterLow, setFilterLow] = useState(false);
+  // Whether POS sales deduct stock. Default true to avoid a banner flash before load.
+  const [tracking, setTracking] = useState(true);
 
   const { register: regItem, handleSubmit: subItem, reset: resetItem, formState: { errors: errItem } } = useForm<ItemForm>({ resolver: zodResolver(itemSchema) });
   const { register: regTx, handleSubmit: subTx, reset: resetTx, formState: { errors: errTx } } = useForm<TxForm>({ resolver: zodResolver(txSchema) });
 
   const fetch_ = async () => {
-    const res = await fetch('/api/admin/inventory');
-    const data = await res.json();
-    setItems(data?.items ?? data ?? []);
-    setLoading(false);
+    try {
+      const data: any = await apiGet('/api/admin/inventory');
+      setItems(data?.items ?? data ?? []);
+      setTracking(data?.inventoryTracking ?? true);
+      setLoadError('');
+    } catch (err) {
+      setLoadError(errorMessage(err, 'Could not load inventory.'));
+    } finally {
+      // Always clear loading — a thrown fetch used to leave the spinner forever.
+      setLoading(false);
+    }
   };
   useEffect(() => { fetch_(); }, []);
 
@@ -78,27 +92,26 @@ export default function InventoryPage() {
   const saveItem = async (values: ItemForm) => {
     setSaving(true);
     try {
-      await fetch('/api/admin/inventory', {
-        method: itemModal.item ? 'PATCH' : 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(itemModal.item ? { id: itemModal.item.id, ...values } : values),
-      });
+      await apiSend('/api/admin/inventory', itemModal.item ? 'PATCH' : 'POST',
+        itemModal.item ? { id: itemModal.item.id, ...values } : values);
       await fetch_();
       setItemModal({ open: false });
+      toast.success(itemModal.item ? 'Item updated.' : 'Item added.');
+    } catch (err) {
+      toast.error(errorMessage(err, 'Could not save this item.'));
     } finally { setSaving(false); }
   };
 
   const saveTx = async (values: TxForm) => {
     setSaving(true);
     try {
-      await fetch('/api/admin/inventory', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ itemId: txModal.item.id, ...values }),
-      });
+      await apiSend('/api/admin/inventory', 'POST', { itemId: txModal.item.id, ...values });
       await fetch_();
       setTxModal({ open: false });
       resetTx();
+      toast.success('Stock movement recorded.');
+    } catch (err) {
+      toast.error(errorMessage(err, 'Could not record that movement.'));
     } finally { setSaving(false); }
   };
 
@@ -121,6 +134,11 @@ export default function InventoryPage() {
 
   return (
     <div className="p-4 sm:p-6 max-w-7xl mx-auto space-y-5">
+      {loadError && (
+        <div className="flex items-start gap-3 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3">
+          <span className="text-sm text-red-400">{loadError}</span>
+        </div>
+      )}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-[#f4efeb] font-serif">Inventory</h1>
@@ -133,12 +151,31 @@ export default function InventoryPage() {
         <Button size="sm" icon={<Plus size={14}/>} onClick={() => openItem()}>Add Item</Button>
       </div>
 
+      {!tracking && (
+        <div className="flex items-start gap-2.5 rounded-xl border border-[#2b2f2b] bg-[#191c19] px-4 py-3">
+          <Package size={14} className="text-[#aba8a4] shrink-0 mt-0.5" />
+          <p className="text-xs text-[#aba8a4] leading-relaxed">
+            <strong className="text-[#f4efeb]">Stock tracking is off.</strong> Sales aren’t deducting ingredients yet,
+            so these counts won’t change automatically — you can still adjust them by hand. An owner can enable
+            automatic deduction in <span className="text-[#5ecf4f]">Settings → Inventory Tracking</span>.
+          </p>
+        </div>
+      )}
+
+      {/* Market run & waste — the two things that happen away from this screen */}
+      {!loading && items.length > 0 && (
+        <div className="grid gap-4 lg:grid-cols-[1.4fr_1fr]">
+          <MarketList items={items as any} />
+          <WasteLog items={items as any} onLogged={fetch_} />
+        </div>
+      )}
+
       {/* Filters */}
       <div className="flex gap-3 items-center">
         <input value={searchQ} onChange={e => setSearchQ(e.target.value)} placeholder="Search items…"
           className="bg-[#191c19] border border-[#2b2f2b] rounded-xl px-3 py-2 text-sm text-[#f4efeb] placeholder:text-[#aba8a4]/60 focus:outline-none focus:border-[#349f2d] w-56"/>
         <button onClick={() => setFilterLow(!filterLow)}
-          className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium border transition-all ${filterLow ? 'bg-yellow-400/10 text-yellow-400 border-yellow-400/30' : 'text-[#aba8a4] border-[#2b2f2b] hover:border-[#404540]'}`}>
+          className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium border transition ${filterLow ? 'bg-yellow-400/10 text-yellow-400 border-yellow-400/30' : 'text-[#aba8a4] border-[#2b2f2b] hover:border-[#404540]'}`}>
           <AlertTriangle size={12}/> Low Stock Only
         </button>
       </div>
@@ -220,7 +257,7 @@ export default function InventoryPage() {
             <Input label="Conversion Factor" type="number" step="0.001" placeholder="e.g. 50 (1 bag = 50 kg)" {...regItem('conversionFactor')}/>
           </div>
           <div className="text-xs text-[#aba8a4] -mt-2">
-            e.g. 1 bag = 50 kg → enter "bag" as Purchase Unit and "50" as Conversion Factor
+            e.g. 1 bag = 50 kg → enter &quot;bag&quot; as Purchase Unit and &quot;50&quot; as Conversion Factor
           </div>
           <div className="grid grid-cols-2 gap-3">
             <Input label="Current Qty" type="number" step="0.01" {...regItem('quantity')}/>

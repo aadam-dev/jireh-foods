@@ -5,6 +5,10 @@ const config: Config = {
     "./pages/**/*.{js,ts,jsx,tsx,mdx}",
     "./components/**/*.{js,ts,jsx,tsx,mdx}",
     "./app/**/*.{js,ts,jsx,tsx,mdx}",
+    // Sidebar, shared UI and the Fresh Ledger components all live under src/.
+    // Without this they only got the utilities that some app/ file happened to
+    // use as well — classes unique to them were silently dropped from the build.
+    "./src/**/*.{js,ts,jsx,tsx,mdx}",
   ],
   theme: {
     extend: {

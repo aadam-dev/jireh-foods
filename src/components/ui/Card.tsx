@@ -20,9 +20,9 @@ export function Card({ children, className = '', hover = false, onClick, padding
     <div
       onClick={onClick}
       className={[
-        'bg-[#191c19] border border-[#2b2f2b] rounded-2xl',
+        'bg-[var(--card)] border border-[var(--border)] rounded-2xl',
         paddingStyles[padding],
-        hover ? 'hover:border-[#404540] hover:bg-[#1b1e1b] transition-all duration-200 cursor-pointer' : '',
+        hover ? 'hover:border-[var(--border-strong)] hover:bg-[var(--surface-light)] transition duration-200 cursor-pointer' : '',
         onClick ? 'cursor-pointer' : '',
         className,
       ].join(' ')}
@@ -42,7 +42,7 @@ export function CardHeader({ children, className = '' }: { children: React.React
 
 export function CardTitle({ children, className = '' }: { children: React.ReactNode; className?: string }) {
   return (
-    <h3 className={`text-sm font-semibold text-[#aba8a4] uppercase tracking-wider ${className}`}>
+    <h3 className={`text-xs font-semibold text-[var(--muted)] uppercase tracking-widest ${className}`}>
       {children}
     </h3>
   );

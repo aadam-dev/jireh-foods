@@ -8,6 +8,8 @@ import { Input, Select, Textarea } from '@/src/components/ui/Input';
 import { Badge } from '@/src/components/ui/Badge';
 import { Modal, ConfirmDialog } from '@/src/components/ui/Modal';
 import { EmptyState } from '@/src/components/ui/EmptyState';
+import { apiGet, apiSend, errorMessage } from '@/src/lib/api-client';
+import { useToast } from '@/src/components/admin/ui/toast';
 import { formatCurrency } from '@/src/lib/utils';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -24,9 +26,58 @@ const itemSchema = z.object({
 });
 type ItemForm = z.infer<typeof itemSchema>;
 
+/* ─── Plate margin chip ──────────────────────────────────────────────────────
+   "This plate sells for GH₵55 and leaves you GH₵33" is the single most useful
+   sentence on a menu screen. Orange below the healthy threshold — the one place
+   the back office shouts. */
+function PlateMargin({ item }: { item: any }) {
+  const e = item.economics as
+    | { cost: number | null; margin: number | null; marginPct: number | null; source: string; needsAttention: boolean }
+    | undefined;
+
+  if (!e || e.cost === null || e.marginPct === null) {
+    return (
+      <div className="flex items-center justify-between gap-2 rounded-lg bg-[#0a0b0a] px-2 py-1.5">
+        <span className="text-[10px] uppercase tracking-wide text-[#aba8a4]">No cost yet</span>
+        <span className="text-[10px] text-[#aba8a4]">Add a recipe to see margin</span>
+      </div>
+    );
+  }
+
+  const pct = Math.round(e.marginPct);
+  const attention = e.needsAttention;
+
+  return (
+    <div
+      className={`flex items-center justify-between gap-2 rounded-lg px-2 py-1.5 border ${
+        attention ? 'bg-orange-400/10 border-orange-400/30' : 'bg-[#0a0b0a] border-[#2b2f2b]'
+      }`}
+      title={
+        e.source === 'recipe'
+          ? 'Cost calculated from this item’s recipe at current ingredient prices'
+          : 'Cost from the manual estimate on this item — add a recipe for the real figure'
+      }
+    >
+      <span className="text-[10px] uppercase tracking-wide text-[#aba8a4]">
+        Costs {formatCurrency(e.cost)}
+        {e.source === 'estimate' && <span className="ml-1 opacity-70">(est.)</span>}
+      </span>
+      <span
+        className={`text-[11px] font-bold tabular-nums ${
+          attention ? 'text-orange-400' : 'text-[#5ecf4f]'
+        }`}
+      >
+        {pct}% · {formatCurrency(e.margin ?? 0)}
+      </span>
+    </div>
+  );
+}
+
 export default function MenuPage() {
+  const toast = useToast();
   const [categories, setCategories] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
   const [itemModal, setItemModal] = useState<{ open: boolean; item?: any; categoryId?: string }>({ open: false });
   const [catModal, setCatModal] = useState<{ open: boolean; cat?: any }>({ open: false });
@@ -45,11 +96,16 @@ export default function MenuPage() {
   });
 
   const fetchMenu = async () => {
-    const res = await fetch('/api/admin/menu');
-    const data = await res.json();
-    setCategories(data);
-    if (!activeCategory && data.length > 0) setActiveCategory(data[0].id);
-    setLoading(false);
+    try {
+      const data = await apiGet<any[]>('/api/admin/menu');
+      setCategories(data);
+      if (!activeCategory && data.length > 0) setActiveCategory(data[0].id);
+      setLoadError('');
+    } catch (err) {
+      setLoadError(errorMessage(err, 'Could not load the menu.'));
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => { fetchMenu(); }, []);
@@ -100,13 +156,12 @@ export default function MenuPage() {
         image: imageUrl || null,
         ...(itemModal.item ? { id: itemModal.item.id } : {}),
       };
-      await fetch('/api/admin/menu', {
-        method: itemModal.item ? 'PATCH' : 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
+      await apiSend('/api/admin/menu', itemModal.item ? 'PATCH' : 'POST', payload);
       await fetchMenu();
       setItemModal({ open: false });
+      toast.success(itemModal.item ? 'Item updated.' : 'Item added.');
+    } catch (err) {
+      toast.error(errorMessage(err, 'Could not save this item.'));
     } finally {
       setSaving(false);
     }
@@ -119,39 +174,53 @@ export default function MenuPage() {
       const payload = catModal.cat
         ? { id: catModal.cat.id, type: 'category', name: catName }
         : { type: 'category', name: catName };
-      await fetch('/api/admin/menu', {
-        method: catModal.cat ? 'PATCH' : 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
+      await apiSend('/api/admin/menu', catModal.cat ? 'PATCH' : 'POST', payload);
       await fetchMenu();
       setCatModal({ open: false });
       setCatName('');
+      toast.success('Category saved.');
+    } catch (err) {
+      toast.error(errorMessage(err, 'Could not save that category.'));
     } finally {
       setSaving(false);
     }
   };
 
   const toggleItem = async (id: string, field: string, value: boolean) => {
-    await fetch('/api/admin/menu', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id, type: 'item', [field]: !value }),
-    });
-    await fetchMenu();
+    // Availability drives the register and the public site. A silent failure
+    // here means staff believe a dish is 86'd while it is still selling.
+    try {
+      await apiSend('/api/admin/menu', 'PATCH', { id, type: 'item', [field]: !value });
+      await fetchMenu();
+      if (field === 'isAvailable') {
+        toast.success(value ? 'Item taken off the menu.' : 'Item is back on the menu.');
+      }
+    } catch (err) {
+      toast.error(errorMessage(err, 'Could not change that item.'));
+    }
   };
 
   const handleDelete = async () => {
     if (!deleteDialog.id) return;
-    await fetch(`/api/admin/menu?id=${deleteDialog.id}&type=${deleteDialog.type}`, { method: 'DELETE' });
-    await fetchMenu();
-    setDeleteDialog({ open: false });
+    try {
+      await apiSend(`/api/admin/menu?id=${deleteDialog.id}&type=${deleteDialog.type}`, 'DELETE');
+      await fetchMenu();
+      setDeleteDialog({ open: false });
+      toast.success('Deleted.');
+    } catch (err) {
+      toast.error(errorMessage(err, 'Could not delete that.'));
+    }
   };
 
   const activeCat = categories.find(c => c.id === activeCategory);
 
   return (
     <div className="p-4 sm:p-6 max-w-7xl mx-auto space-y-5">
+      {loadError && (
+        <div className="flex items-start gap-3 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3">
+          <span className="text-sm text-red-400">{loadError}</span>
+        </div>
+      )}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-[#f4efeb] font-serif">Menu</h1>
@@ -177,7 +246,7 @@ export default function MenuPage() {
                 key={cat.id}
                 onClick={() => setActiveCategory(cat.id)}
                 className={[
-                  'shrink-0 md:w-full text-left px-3 py-2 md:py-2.5 rounded-xl text-sm transition-all flex items-center gap-2 whitespace-nowrap',
+                  'shrink-0 md:w-full text-left px-3 py-2 md:py-2.5 rounded-xl text-sm transition flex items-center gap-2 whitespace-nowrap',
                   cat.id === activeCategory
                     ? 'bg-[#349f2d]/20 text-[#5ecf4f] border border-[#349f2d]/40'
                     : 'text-[#aba8a4] hover:text-[#f4efeb] hover:bg-white/5 border border-[#2b2f2b]',
@@ -222,59 +291,85 @@ export default function MenuPage() {
                     action={{ label: 'Add Item', onClick: () => openItemModal(activeCat.id) }}
                   />
                 ) : (
-                  <div className="divide-y divide-[#2b2f2b]">
+                  <div className="p-4 grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3">
                     {activeCat.items.map((item: any) => (
-                      <div key={item.id} className="flex items-center gap-3 px-5 py-3">
-                        {/* Thumbnail */}
-                        <div className="w-12 h-12 rounded-xl overflow-hidden shrink-0 bg-[#111311] border border-[#2b2f2b] flex items-center justify-center">
+                      <div
+                        key={item.id}
+                        className="group relative flex flex-col rounded-2xl border border-[#2b2f2b] bg-[#111311] overflow-hidden hover:border-[#404540] transition duration-200"
+                      >
+                        {/* Image area */}
+                        <div className="relative aspect-[4/3] bg-[#0a0b0a] overflow-hidden">
                           {item.image ? (
-                            <img src={item.image} alt={item.name} className="w-full h-full object-cover" />
+                            <img
+                              src={item.image}
+                              alt={item.name}
+                              className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+                            />
                           ) : (
-                            <UtensilsCrossed size={16} className="text-[#2b2f2b]" />
+                            <div className="w-full h-full flex items-center justify-center">
+                              <UtensilsCrossed size={28} className="text-[#2b2f2b]" />
+                            </div>
                           )}
-                        </div>
-
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span className="text-sm font-medium text-[#f4efeb]">{item.name}</span>
-                            {item.isPopular && <Star size={11} className="text-yellow-400 fill-yellow-400" />}
-                            {!item.isAvailable && <Badge variant="red" size="sm">Off menu</Badge>}
-                            {(item.tags ?? []).map((tag: string) => (
-                              <Badge key={tag} variant="gray" size="sm">{tag}</Badge>
-                            ))}
+                          {/* Overlay actions on hover */}
+                          <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex items-center justify-center gap-2">
+                            <button
+                              onClick={() => openItemModal(activeCat.id, item)}
+                              className="p-2 rounded-xl bg-white/15 hover:bg-white/25 text-white backdrop-blur-sm transition-colors"
+                              title="Edit item"
+                            >
+                              <Pencil size={14} />
+                            </button>
+                            <button
+                              onClick={() => setDeleteDialog({ open: true, id: item.id, type: 'item', name: item.name })}
+                              className="p-2 rounded-xl bg-red-500/20 hover:bg-red-500/35 text-red-300 backdrop-blur-sm transition-colors"
+                              title="Delete item"
+                            >
+                              <Trash2 size={14} />
+                            </button>
                           </div>
-                          {item.description && (
-                            <p className="text-xs text-[#aba8a4] mt-0.5 truncate max-w-xs">{item.description}</p>
-                          )}
+                          {/* Status badges on image */}
+                          <div className="absolute top-2 left-2 flex flex-col gap-1">
+                            {item.isPopular && (
+                              <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-lg bg-yellow-500/90 text-[10px] font-bold text-black backdrop-blur-sm">
+                                <Star size={9} className="fill-black" /> Popular
+                              </span>
+                            )}
+                            {!item.isAvailable && (
+                              <span className="px-1.5 py-0.5 rounded-lg bg-red-500/90 text-[10px] font-bold text-white backdrop-blur-sm">
+                                Off menu
+                              </span>
+                            )}
+                          </div>
                         </div>
 
-                        <div className="text-right shrink-0">
-                          <p className="text-sm font-semibold text-[#f4efeb]">{formatCurrency(item.price)}</p>
-                          {item.costPrice && (
-                            <p className="text-xs text-[#aba8a4]">Cost: {formatCurrency(item.costPrice)}</p>
-                          )}
-                        </div>
+                        {/* Content */}
+                        <div className="flex flex-col gap-2 p-3 flex-1">
+                          <div className="flex-1">
+                            <p className="text-sm font-semibold text-[#f4efeb] leading-snug line-clamp-1">{item.name}</p>
+                            {item.description && (
+                              <p className="text-[11px] text-[#aba8a4] mt-0.5 line-clamp-2 leading-snug">{item.description}</p>
+                            )}
+                          </div>
 
-                        <div className="flex items-center gap-1 shrink-0">
-                          <button
-                            onClick={() => toggleItem(item.id, 'isAvailable', item.isAvailable)}
-                            className={`p-1.5 rounded-lg transition-colors ${item.isAvailable ? 'text-[#5ecf4f] hover:bg-[#349f2d]/10' : 'text-[#aba8a4] hover:bg-white/5'}`}
-                            title={item.isAvailable ? 'Mark unavailable' : 'Mark available'}
-                          >
-                            {item.isAvailable ? <ToggleRight size={16} /> : <ToggleLeft size={16} />}
-                          </button>
-                          <button
-                            onClick={() => openItemModal(activeCat.id, item)}
-                            className="p-1.5 rounded-lg text-[#aba8a4] hover:text-[#f4efeb] hover:bg-white/5 transition-colors"
-                          >
-                            <Pencil size={14} />
-                          </button>
-                          <button
-                            onClick={() => setDeleteDialog({ open: true, id: item.id, type: 'item', name: item.name })}
-                            className="p-1.5 rounded-lg text-[#aba8a4] hover:text-red-400 hover:bg-red-500/10 transition-colors"
-                          >
-                            <Trash2 size={14} />
-                          </button>
+                          {/* Plate economics — the highest-value number on this
+                              screen. Cost from the recipe when there is one,
+                              otherwise the manual estimate, always labelled. */}
+                          <PlateMargin item={item} />
+
+                          <div className="flex items-center justify-between pt-1 border-t border-[#2b2f2b]">
+                            <p className="text-sm font-bold text-[#5ecf4f] tabular-nums">{formatCurrency(item.price)}</p>
+                            <button
+                              onClick={() => toggleItem(item.id, 'isAvailable', item.isAvailable)}
+                              className={`p-1 rounded-lg transition-colors ${
+                                item.isAvailable
+                                  ? 'text-[#5ecf4f] hover:bg-[#349f2d]/15'
+                                  : 'text-[#aba8a4] hover:bg-white/5'
+                              }`}
+                              title={item.isAvailable ? 'Mark unavailable' : 'Mark available'}
+                            >
+                              {item.isAvailable ? <ToggleRight size={18} /> : <ToggleLeft size={18} />}
+                            </button>
+                          </div>
                         </div>
                       </div>
                     ))}

@@ -11,7 +11,8 @@
     "db:generate": "prisma generate",
     "db:studio": "prisma studio",
     "db:seed": "tsx prisma/seed.ts",
-    "db:seed:api": "node prisma/seed-via-api.mjs"
+    "db:seed:api": "node prisma/seed-via-api.mjs",
+    "test:money": "tsx --test src/lib/money.test.ts"
   },
   "dependencies": {
     "@ducanh2912/next-pwa": "^10.2.9",
@@ -26,12 +27,13 @@
     "exceljs": "^4.4.0",
     "framer-motion": "^11.11.17",
     "lucide-react": "^0.468.0",
-    "next": "14.2.18",
+    "next": "14.2.35",
     "next-auth": "^5.0.0-beta.31",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-hook-form": "^7.54.0",
     "recharts": "^2.13.3",
+    "sharp": "^0.35.3",
     "workbox-window": "^7.4.1",
     "zod": "^3.23.8"
   },

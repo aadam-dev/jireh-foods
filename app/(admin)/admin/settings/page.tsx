@@ -3,12 +3,13 @@
 import { useEffect, useState } from 'react';
 import {
   Save, Building2, Phone, MapPin, DollarSign, Receipt,
-  Package, AlertCircle, CheckCircle2, Tag, Loader2, Info,
+  Package, AlertCircle, CheckCircle2, Tag, Loader2, Info, FlaskConical,
 } from 'lucide-react';
 import { Card } from '@/src/components/ui/Card';
 import { Input } from '@/src/components/ui/Input';
 import { Button } from '@/src/components/ui/Button';
 import { formatCurrency } from '@/src/lib/utils';
+import { DEVELOPER_CREDIT } from '@/src/lib/developer-credit';
 
 interface SettingsMap {
   business_name: string;
@@ -20,6 +21,7 @@ interface SettingsMap {
   receipt_header: string;
   receipt_footer: string;
   low_stock_alert_threshold: string;
+  inventory_tracking: string; // 'true' | 'false'
 }
 
 const DEFAULTS: SettingsMap = {
@@ -32,9 +34,10 @@ const DEFAULTS: SettingsMap = {
   receipt_header: 'Fresh & Healthy — Always',
   receipt_footer: 'Thank you for dining with us!',
   low_stock_alert_threshold: '5',
+  inventory_tracking: 'false',
 };
 
-type SectionKey = 'business' | 'tax' | 'receipt' | 'alerts';
+type SectionKey = 'business' | 'tax' | 'receipt' | 'alerts' | 'inventory';
 
 export default function SettingsPage() {
   const [values, setValues]     = useState<SettingsMap>(DEFAULTS);
@@ -58,6 +61,9 @@ export default function SettingsPage() {
 
   const set = (key: keyof SettingsMap) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
     setValues(v => ({ ...v, [key]: e.target.value }));
+
+  const setToggle = (key: keyof SettingsMap, on: boolean) =>
+    setValues(v => ({ ...v, [key]: on ? 'true' : 'false' }));
 
   const sectionDirty = (keys: (keyof SettingsMap)[]) => keys.some(k => values[k] !== original[k]);
 
@@ -106,6 +112,7 @@ export default function SettingsPage() {
   const taxRate = parseFloat(values.tax_rate) || 0;
   const exampleOrderTotal = 80;
   const exampleTax = exampleOrderTotal * taxRate;
+  const trackingOn = values.inventory_tracking === 'true';
 
   if (loading) {
     return (
@@ -340,6 +347,50 @@ export default function SettingsPage() {
         </div>
       </Card>
 
+      {/* ── Inventory Tracking ── */}
+      <Card padding="md">
+        <div className="flex items-center justify-between mb-5">
+          <div className="flex items-center gap-2">
+            <FlaskConical size={15} className="text-[#5ecf4f]" />
+            <h2 className="text-sm font-semibold text-[#f4efeb]">Inventory Tracking</h2>
+          </div>
+          <SectionSaveBtn section="inventory" keys={['inventory_tracking']} />
+        </div>
+        <div className="space-y-4">
+          <div className="flex items-center justify-between gap-4 rounded-xl border border-[#2b2f2b] bg-[#111311] px-4 py-3.5">
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-[#f4efeb]">Deduct ingredient stock on each sale</p>
+              <p className="text-[11px] text-[#aba8a4] mt-0.5">
+                When on, completing a POS order subtracts recipe (BOM) ingredients from Inventory.
+              </p>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={trackingOn}
+              aria-label="Toggle inventory tracking"
+              onClick={() => setToggle('inventory_tracking', !trackingOn)}
+              className={`relative shrink-0 w-12 h-7 rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#349f2d]/60 ${trackingOn ? 'bg-[#349f2d]' : 'bg-[#2b2f2b]'}`}
+            >
+              <span className={`absolute top-1 left-1 w-5 h-5 rounded-full bg-white shadow transition-transform duration-200 ${trackingOn ? 'translate-x-5' : ''}`} />
+            </button>
+          </div>
+
+          <div className={`flex items-start gap-2.5 rounded-xl px-4 py-3 border ${trackingOn ? 'bg-[#349f2d]/5 border-[#349f2d]/20' : 'bg-[#111311] border-[#2b2f2b]'}`}>
+            <Info size={13} className={`shrink-0 mt-0.5 ${trackingOn ? 'text-[#5ecf4f]' : 'text-[#aba8a4]'}`} />
+            {trackingOn ? (
+              <p className="text-[11px] text-[#5ecf4f]/90 leading-relaxed">
+                <strong>Tracking is on.</strong> Make sure each menu item has a recipe (BOM) and stock counts are current. A sale never blocks on low stock — negative quantities are allowed and flagged red as “Oversold” in Inventory.
+              </p>
+            ) : (
+              <p className="text-[11px] text-[#aba8a4] leading-relaxed">
+                <strong className="text-[#f4efeb]">Tracking is off.</strong> Sales are recorded normally but no ingredients are deducted. Turn this on once recipes and stock counts are set up — this is the default for now.
+              </p>
+            )}
+          </div>
+        </div>
+      </Card>
+
       {/* ── Alerts & Thresholds ── */}
       <Card padding="md">
         <div className="flex items-center justify-between mb-5">
@@ -377,9 +428,13 @@ export default function SettingsPage() {
           </div>
           <div className="text-right shrink-0">
             <p className="text-xs font-mono text-[#aba8a4]">v1.1.0</p>
-            <a href="https://aadam.vercel.app" target="_blank" rel="noreferrer"
+            <a href={DEVELOPER_CREDIT.url} target="_blank" rel="noreferrer"
               className="text-[10px] text-[#349f2d] hover:text-[#5ecf4f] transition-colors">
-              Built by aadam
+              Built by {DEVELOPER_CREDIT.domain}
+            </a>
+            <a href={`tel:${DEVELOPER_CREDIT.phoneE164}`}
+              className="block text-[10px] text-[#aba8a4] hover:text-[#f4efeb] transition-colors">
+              {DEVELOPER_CREDIT.phoneDisplay}
             </a>
           </div>
         </div>

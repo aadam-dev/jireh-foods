@@ -106,25 +106,25 @@ enum PoStatus {
 // ─── Users & Profiles ─────────────────────────────────────────────────────────
 
 model User {
-  id                    String          @id @default(cuid())
+  id                    String   @id @default(cuid())
   name                  String
-  email                 String          @unique
+  email                 String   @unique
   password              String
-  role                  UserRole        @default(CASHIER)
-  isActive              Boolean         @default(true)
-  passwordResetRequired Boolean         @default(false)
-  createdAt             DateTime        @default(now())
-  updatedAt             DateTime        @updatedAt
+  role                  UserRole @default(CASHIER)
+  isActive              Boolean  @default(true)
+  passwordResetRequired Boolean  @default(false)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
 
-  staffProfile          StaffProfile?
-  orders                Order[]
-  orderEvents           OrderEvent[]
-  auditLogs             AuditLog[]
-  payrollRecords        PayrollRecord[]
-  openedSessions        PosSession[]    @relation("OpenedSessions")
-  closedSessions        PosSession[]    @relation("ClosedSessions")
-  createdPOs            PurchaseOrder[] @relation("CreatedPOs")
-  receivedPOs           PoReceipt[]     @relation("ReceivedPOs")
+  staffProfile   StaffProfile?
+  orders         Order[]
+  orderEvents    OrderEvent[]
+  auditLogs      AuditLog[]
+  payrollRecords PayrollRecord[]
+  openedSessions PosSession[]    @relation("OpenedSessions")
+  closedSessions PosSession[]    @relation("ClosedSessions")
+  createdPOs     PurchaseOrder[] @relation("CreatedPOs")
+  receivedPOs    PoReceipt[]     @relation("ReceivedPOs")
 }
 
 model StaffProfile {
@@ -155,27 +155,37 @@ model PosSession {
   closedAt     DateTime?
   openingFloat Decimal       @db.Decimal(10, 2)
   closingCash  Decimal?      @db.Decimal(10, 2)
+  // Counted at close alongside cash — previously computed for the summary and
+  // then discarded, so a MoMo shortfall left no record after the shift ended.
+  closingMomo  Decimal?      @db.Decimal(10, 2)
+  closingBolt  Decimal?      @db.Decimal(10, 2)
+  /**
+   * Denomination breakdown from the drawer count: { "50": 3, "20": 11, … }
+   */
+  cashCount    Json?
   status       SessionStatus @default(OPEN)
   notes        String?
 
-  orders       Order[]
+  orders Order[]
 
   @@index([status])
   @@index([openedAt])
+  @@index([openedBy])
+  @@index([closedBy])
 }
 
 // ─── Menu ─────────────────────────────────────────────────────────────────────
 
 model MenuCategory {
-  id        String     @id @default(cuid())
+  id        String   @id @default(cuid())
   name      String
-  slug      String     @unique
-  sortOrder Int        @default(0)
-  isActive  Boolean    @default(true)
-  createdAt DateTime   @default(now())
-  updatedAt DateTime   @updatedAt
+  slug      String   @unique
+  sortOrder Int      @default(0)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  items     MenuItem[]
+  items MenuItem[]
 }
 
 model MenuItem {
@@ -194,52 +204,116 @@ model MenuItem {
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
 
-  orderItems  OrderItem[]
-  bom         Bom?
+  orderItems OrderItem[]
+  bom        Bom?
+  modifiers  MenuItemModifier[]
+
+  @@index([categoryId])
+}
+
+// ─── Modifiers ────────────────────────────────────────────────────────────────
+// Protein choice, extras, spice level. Sizes stay as separate MenuItems (that
+// is how the kitchen and the printed menu already think about them); modifiers
+// are the choices made *within* a size at the moment of ordering.
+
+enum ModifierSelection {
+  SINGLE // radio — "Grilled or fried?"
+  MULTI // checkbox — "Extras"
+}
+
+model ModifierGroup {
+  id         String            @id @default(cuid())
+  name       String // "Protein", "Spice level", "Extras"
+  selection  ModifierSelection @default(SINGLE)
+  /**
+   * A required SINGLE group forces a choice before the item can be added.
+   */
+  isRequired Boolean           @default(false)
+  sortOrder  Int               @default(0)
+  isActive   Boolean           @default(true)
+  createdAt  DateTime          @default(now())
+  updatedAt  DateTime          @updatedAt
+
+  options   ModifierOption[]
+  menuItems MenuItemModifier[]
+}
+
+model ModifierOption {
+  id          String        @id @default(cuid())
+  groupId     String
+  group       ModifierGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  name        String // "Grilled", "Extra shito"
+  /**
+   * Added to the line price. 0 for a plain choice, positive for a paid extra.
+   */
+  priceDelta  Decimal       @default(0) @db.Decimal(10, 2)
+  isAvailable Boolean       @default(true)
+  sortOrder   Int           @default(0)
+  createdAt   DateTime      @default(now())
+
+  orderItems OrderItemModifier[]
+
+  @@index([groupId])
+}
+
+/**
+ * Which groups apply to which dish.
+ */
+model MenuItemModifier {
+  id         String        @id @default(cuid())
+  menuItemId String
+  menuItem   MenuItem      @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+  groupId    String
+  group      ModifierGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  sortOrder  Int           @default(0)
+
+  @@unique([menuItemId, groupId])
+  @@index([menuItemId])
+  @@index([groupId])
 }
 
 // ─── Orders ───────────────────────────────────────────────────────────────────
 
 model Order {
-  id              String        @id @default(cuid())
-  orderNumber     String        @unique
-  clientRef       String?       @unique  // idempotency key from POS — dedupes offline re-sync / double-tap
-  sessionId       String?
-  session         PosSession?   @relation(fields: [sessionId], references: [id])
-  status          OrderStatus   @default(PENDING)
-  source          OrderSource   @default(POS)
-  deliveryType    DeliveryType  @default(DINE_IN)
-  paymentMethod   PaymentMethod @default(CASH)
-  paymentStatus   String        @default("PENDING")
-  paymentRef      String?
-  subtotal        Decimal       @db.Decimal(10, 2)
-  discountAmount  Decimal       @default(0) @db.Decimal(10, 2)
-  taxAmount       Decimal       @default(0) @db.Decimal(10, 2)
-  total           Decimal       @db.Decimal(10, 2)
-  tenderedAmount  Decimal?      @db.Decimal(10, 2)
-  changeAmount    Decimal?      @db.Decimal(10, 2)
-  splitPayments   Json?         // [{method, amount, ref?}] for SPLIT orders
-  notes           String?
-  customerName    String?
-  customerPhone   String?
-  customerAddress String?
-  staffId         String?
-  staff           User?         @relation(fields: [staffId], references: [id])
-  isDemo               Boolean              @default(false)
-  locationId           String?              // nullable — reserved for multi-location expansion
-  transactionSnapshot  Json?                // immutable receipt at sale time
-  voidReason           VoidReason?
-  voidInventoryAction  VoidInventoryAction?
-  createdAt            DateTime             @default(now())
-  updatedAt            DateTime             @updatedAt
+  id                  String               @id @default(cuid())
+  orderNumber         String               @unique
+  clientRef           String?              @unique // idempotency key from POS — dedupes offline re-sync / double-tap
+  sessionId           String?
+  session             PosSession?          @relation(fields: [sessionId], references: [id])
+  status              OrderStatus          @default(PENDING)
+  source              OrderSource          @default(POS)
+  deliveryType        DeliveryType         @default(DINE_IN)
+  paymentMethod       PaymentMethod        @default(CASH)
+  paymentStatus       String               @default("PENDING")
+  paymentRef          String?
+  subtotal            Decimal              @db.Decimal(10, 2)
+  discountAmount      Decimal              @default(0) @db.Decimal(10, 2)
+  taxAmount           Decimal              @default(0) @db.Decimal(10, 2)
+  total               Decimal              @db.Decimal(10, 2)
+  tenderedAmount      Decimal?             @db.Decimal(10, 2)
+  changeAmount        Decimal?             @db.Decimal(10, 2)
+  splitPayments       Json? // [{method, amount, ref?}] for SPLIT orders
+  notes               String?
+  customerName        String?
+  customerPhone       String?
+  customerAddress     String?
+  staffId             String?
+  staff               User?                @relation(fields: [staffId], references: [id])
+  isDemo              Boolean              @default(false)
+  locationId          String? // nullable — reserved for multi-location expansion
+  transactionSnapshot Json? // immutable receipt at sale time
+  voidReason          VoidReason?
+  voidInventoryAction VoidInventoryAction?
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
 
   items  OrderItem[]
   events OrderEvent[]
 
-  @@index([createdAt, isDemo])        // dashboard & report date-range scans
-  @@index([sessionId, isDemo])        // session order summaries
-  @@index([staffId, createdAt])       // per-staff order history
-  @@index([status, createdAt])        // order list filtering
+  @@index([createdAt, isDemo]) // dashboard & report date-range scans
+  @@index([sessionId, isDemo]) // session order summaries
+  @@index([staffId, createdAt]) // per-staff order history
+  @@index([status, createdAt]) // order list filtering
 }
 
 model OrderItem {
@@ -254,6 +328,30 @@ model OrderItem {
   subtotal   Decimal  @db.Decimal(10, 2)
   notes      String?
   createdAt  DateTime @default(now())
+
+  modifiers OrderItemModifier[]
+
+  @@index([orderId])
+  @@index([menuItemId])
+}
+
+/**
+ * What was actually chosen on a line, captured at sale time. Name and price
+ * are snapshots — renaming "Grilled" later must not rewrite a printed receipt.
+ */
+model OrderItemModifier {
+  id          String          @id @default(cuid())
+  orderItemId String
+  orderItem   OrderItem       @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
+  optionId    String?
+  option      ModifierOption? @relation(fields: [optionId], references: [id], onDelete: SetNull)
+  groupName   String
+  name        String
+  priceDelta  Decimal         @default(0) @db.Decimal(10, 2)
+  createdAt   DateTime        @default(now())
+
+  @@index([orderItemId])
+  @@index([optionId])
 }
 
 model OrderEvent {
@@ -268,6 +366,7 @@ model OrderEvent {
   createdAt   DateTime       @default(now())
 
   @@index([orderId, createdAt])
+  @@index([actorUserId])
 }
 
 // ─── Inventory ────────────────────────────────────────────────────────────────
@@ -305,22 +404,22 @@ model InventoryTransaction {
   reference String?
   createdAt DateTime                 @default(now())
 
-  @@index([itemId, createdAt])        // per-item transaction history
-  @@index([type, createdAt])          // usage/purchase reporting
+  @@index([itemId, createdAt]) // per-item transaction history
+  @@index([type, createdAt]) // usage/purchase reporting
 }
 
 // ─── BOM (Recipe Engine) ──────────────────────────────────────────────────────
 
 model Bom {
-  id         String    @id @default(cuid())
-  menuItemId String    @unique
-  menuItem   MenuItem  @relation(fields: [menuItemId], references: [id])
+  id         String   @id @default(cuid())
+  menuItemId String   @unique
+  menuItem   MenuItem @relation(fields: [menuItemId], references: [id])
   notes      String?
-  isActive   Boolean   @default(true)
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
-  lines      BomLine[]
+  lines BomLine[]
 }
 
 model BomLine {
@@ -332,21 +431,24 @@ model BomLine {
   quantity        Decimal       @db.Decimal(10, 3)
   unit            String
   createdAt       DateTime      @default(now())
+
+  @@index([bomId])
+  @@index([inventoryItemId])
 }
 
 // ─── Suppliers & Purchasing ───────────────────────────────────────────────────
 
 model Supplier {
-  id            String          @id @default(cuid())
+  id            String   @id @default(cuid())
   name          String
   contactPerson String?
   phone         String?
   email         String?
   address       String?
   notes         String?
-  isActive      Boolean         @default(true)
-  createdAt     DateTime        @default(now())
-  updatedAt     DateTime        @updatedAt
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
   purchaseOrders PurchaseOrder[]
 }
@@ -368,8 +470,9 @@ model PurchaseOrder {
   lines    PoLine[]
   receipts PoReceipt[]
 
-  @@index([status, createdAt])        // PO list filtering by status
-  @@index([supplierId])               // supplier PO history
+  @@index([status, createdAt]) // PO list filtering by status
+  @@index([supplierId]) // supplier PO history
+  @@index([createdById])
 }
 
 model PoLine {
@@ -385,6 +488,9 @@ model PoLine {
   createdAt       DateTime      @default(now())
 
   receiptLines PoReceiptLine[]
+
+  @@index([poId])
+  @@index([inventoryItemId])
 }
 
 model PoReceipt {
@@ -397,6 +503,9 @@ model PoReceipt {
   notes        String?
 
   lines PoReceiptLine[]
+
+  @@index([poId])
+  @@index([receivedById])
 }
 
 model PoReceiptLine {
@@ -410,15 +519,19 @@ model PoReceiptLine {
   qtyReceived     Decimal       @db.Decimal(10, 3)
   purchaseUnit    String
   createdAt       DateTime      @default(now())
+
+  @@index([receiptId])
+  @@index([poLineId])
+  @@index([inventoryItemId])
 }
 
 // ─── Expenses ─────────────────────────────────────────────────────────────────
 
 model ExpenseCategory {
-  id        String    @id @default(cuid())
+  id        String   @id @default(cuid())
   name      String
-  isActive  Boolean   @default(true)
-  createdAt DateTime  @default(now())
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
 
   expenses Expense[]
 }
@@ -435,6 +548,9 @@ model Expense {
   notes         String?
   createdAt     DateTime        @default(now())
   updatedAt     DateTime        @updatedAt
+
+  @@index([categoryId])
+  @@index([date])
 }
 
 // ─── Finance ──────────────────────────────────────────────────────────────────
@@ -466,6 +582,8 @@ model PayrollRecord {
   paidAt      DateTime?
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
+
+  @@index([userId])
 }
 
 // ─── System ───────────────────────────────────────────────────────────────────
@@ -480,6 +598,8 @@ model AuditLog {
   details   Json?
   ipAddress String?
   createdAt DateTime @default(now())
+
+  @@index([userId])
 }
 
 model Settings {

@@ -3,6 +3,8 @@
 import { useEffect, useState } from 'react';
 import { Plus, Trash2, ChevronDown, ChevronUp, BookOpen, X, Save, Pencil, FlaskConical } from 'lucide-react';
 import { formatCurrency } from '@/src/lib/utils';
+import { apiSend, errorMessage } from '@/src/lib/api-client';
+import { useToast } from '@/src/components/admin/ui/toast';
 
 interface InventoryItem { id: string; name: string; unit: string }
 interface MenuItem { id: string; name: string; price: number; category: { name: string }; bom?: { id: string } | null }
@@ -19,6 +21,7 @@ interface Bom {
 const emptyLine = (): BomLine => ({ inventoryItemId: '', quantity: 0, unit: '' });
 
 export default function BomsPage() {
+  const toast = useToast();
   const [boms, setBoms] = useState<Bom[]>([]);
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
@@ -85,19 +88,24 @@ export default function BomsPage() {
     try {
       const url = editingId ? `/api/admin/boms/${editingId}` : '/api/admin/boms';
       const method = editingId ? 'PUT' : 'POST';
-      const res = await fetch(url, {
-        method,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ menuItemId, notes, lines }),
-      });
-      if (res.ok) { setFormOpen(false); await fetchAll(); }
+      await apiSend(url, method, { menuItemId, notes, lines });
+      setFormOpen(false);
+      await fetchAll();
+      toast.success('Recipe saved.');
+    } catch (err) {
+      toast.error(errorMessage(err, 'Could not save this recipe.'));
     } finally { setSaving(false); }
   };
 
   const deleteBom = async (id: string) => {
     if (!confirm('Delete this recipe?')) return;
-    await fetch(`/api/admin/boms/${id}`, { method: 'DELETE' });
-    await fetchAll();
+    try {
+      await apiSend(`/api/admin/boms/${id}`, 'DELETE');
+      await fetchAll();
+      toast.success('Recipe deleted.');
+    } catch (err) {
+      toast.error(errorMessage(err, 'Could not delete that recipe.'));
+    }
   };
 
   // Menu items without a BOM (for the create form dropdown)

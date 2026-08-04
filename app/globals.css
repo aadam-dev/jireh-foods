@@ -19,6 +19,203 @@
   --shadow-dark: 0 20px 50px -30px rgba(0, 0, 0, 0.9);
 }
 
+/* ══════════════════════════════════════════════════════════════════════════
+   FRESH LEDGER — back office design system
+   ══════════════════════════════════════════════════════════════════════════
+   One identity for the back office: calm light surfaces (owners read numbers
+   in daylight), a single deep-leaf brand green, and ember orange reserved
+   EXCLUSIVELY for "needs attention". The POS keeps its dark service theme —
+   it lives in a different route group and never gets .fresh-ledger.
+
+   Scope: everything below only applies inside .fresh-ledger. The public
+   marketing site is untouched.
+   ────────────────────────────────────────────────────────────────────────── */
+.fresh-ledger {
+  --fl-bg:          #F7F6F2;  /* warm paper */
+  --fl-surface:     #FFFFFF;
+  --fl-surface-2:   #F0EEE8;
+  --fl-ink:         #1C2420;
+  --fl-ink-2:       rgba(28, 36, 32, 0.68);
+  --fl-ink-3:       rgba(28, 36, 32, 0.44);
+  --fl-line:        rgba(28, 36, 32, 0.10);
+  --fl-line-strong: rgba(28, 36, 32, 0.18);
+  --fl-brand:       #1E5C3A;  /* Jireh deep leaf green */
+  --fl-brand-hover: #17492D;
+  --fl-brand-soft:  #E4F0E8;
+  --fl-accent:      #E8862E;  /* ember — attention states ONLY */
+  --fl-accent-soft: #FDF0E3;
+  --fl-good:        #2E8B57;
+  --fl-bad:         #C0392B;
+  --fl-shadow:      0 1px 2px rgba(28, 36, 32, 0.04), 0 8px 24px -16px rgba(28, 36, 32, 0.18);
+
+  /* Legacy token remap — the sidebar and shared UI components read these,
+     so redefining them here flips them to light with no markup changes. */
+  --background:       var(--fl-bg);
+  --foreground:       var(--fl-ink);
+  --accent:           var(--fl-brand);
+  --accent-hover:     var(--fl-brand-hover);
+  --accent-bright:    var(--fl-brand);
+  --muted:            var(--fl-ink-2);
+  --card:             var(--fl-surface);
+  --border:           var(--fl-line);
+  --border-strong:    var(--fl-line-strong);
+  --surface-light:    var(--fl-surface-2);
+  --surface-dark:     var(--fl-surface);
+  --surface-dark-soft: var(--fl-surface-2);
+  --shadow-soft:      var(--fl-shadow);
+  --shadow-dark:      var(--fl-shadow);
+
+  background: var(--fl-bg);
+  color: var(--fl-ink);
+  font-family: var(--font-inter-tight), ui-sans-serif, system-ui, sans-serif;
+  font-feature-settings: "ss01", "cv05";
+}
+
+/* Display type — page titles and KPI numbers */
+.fresh-ledger .fl-display {
+  font-family: var(--font-fraunces), ui-serif, Georgia, serif;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+/* Mono — order codes, SKUs, times, receipts, metric labels */
+.fresh-ledger .fl-mono {
+  font-family: var(--font-jetbrains-mono), ui-monospace, SFMono-Regular, monospace;
+}
+
+/* Metric label: 11px mono uppercase, wide tracking */
+.fresh-ledger .fl-label {
+  font-family: var(--font-jetbrains-mono), ui-monospace, SFMono-Regular, monospace;
+  font-size: 11px;
+  line-height: 1.2;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--fl-ink-3);
+}
+
+/* KPI value */
+.fresh-ledger .fl-kpi {
+  font-family: var(--font-fraunces), ui-serif, Georgia, serif;
+  font-weight: 600;
+  font-size: clamp(1.8rem, 2.4vw, 2.6rem);
+  line-height: 1.05;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+/* On a phone the owner sees two KPI cards per row — at 1.8rem a figure like
+   "GH₵ 1,840.00" wraps onto two lines. Scale with the viewport instead. */
+@media (max-width: 640px) {
+  .fresh-ledger .fl-kpi {
+    font-size: clamp(1.25rem, 5.6vw, 1.8rem);
+    letter-spacing: -0.01em;
+  }
+}
+
+/* All money reads in tabular figures so columns line up */
+.fresh-ledger .fl-money,
+.fresh-ledger .tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Legacy dark-theme bridge ──────────────────────────────────────────────
+   The admin pages were written against hardcoded dark hexes. Rather than
+   rewrite 13 screens at once, map those exact values onto Fresh Ledger
+   tokens so every page flips together. Pages get migrated to semantic
+   classes as they're touched; delete a rule here once its page is clean. */
+
+/* Surfaces */
+.fresh-ledger .bg-\[\#111311\]  { background-color: var(--fl-bg); }
+.fresh-ledger .bg-\[\#0a0b0a\]  { background-color: var(--fl-surface-2); }
+.fresh-ledger .bg-\[\#191c19\]  { background-color: var(--fl-surface); }
+.fresh-ledger .bg-\[\#1b1e1b\]  { background-color: var(--fl-surface-2); }
+.fresh-ledger .bg-\[\#222522\]  { background-color: var(--fl-surface-2); }
+.fresh-ledger .hover\:bg-\[\#1b1e1b\]:hover { background-color: var(--fl-brand-soft); }
+.fresh-ledger .hover\:bg-\[\#222522\]:hover { background-color: var(--fl-brand-soft); }
+
+/* Ink */
+.fresh-ledger .text-\[\#f4efeb\] { color: var(--fl-ink); }
+.fresh-ledger .text-\[\#aba8a4\] { color: var(--fl-ink-2); }
+.fresh-ledger .text-\[\#6b7280\] { color: var(--fl-ink-3); }
+.fresh-ledger .text-\[\#404540\] { color: var(--fl-ink-3); }
+.fresh-ledger .hover\:text-\[\#f4efeb\]:hover { color: var(--fl-ink); }
+.fresh-ledger .placeholder\:text-\[\#404540\]::placeholder { color: var(--fl-ink-3); }
+.fresh-ledger .text-\[\#aba8a4\]\/50,
+.fresh-ledger .text-\[\#aba8a4\]\/60,
+.fresh-ledger .text-\[\#aba8a4\]\/70 { color: var(--fl-ink-3); }
+.fresh-ledger .placeholder\:text-\[\#aba8a4\]\/50::placeholder,
+.fresh-ledger .placeholder\:text-\[\#aba8a4\]\/60::placeholder { color: var(--fl-ink-3); }
+
+/* Lines */
+.fresh-ledger .border-\[\#2b2f2b\] { border-color: var(--fl-line); }
+.fresh-ledger .border-\[\#404540\] { border-color: var(--fl-line-strong); }
+.fresh-ledger .hover\:border-\[\#404540\]:hover { border-color: var(--fl-line-strong); }
+.fresh-ledger .divide-\[\#2b2f2b\] > * + * { border-color: var(--fl-line); }
+
+/* Brand — bright service green is unreadable on paper; collapse to one green */
+.fresh-ledger .text-\[\#349f2d\],
+.fresh-ledger .text-\[\#5ecf4f\],
+.fresh-ledger .text-\[\#287e22\],
+.fresh-ledger .text-\[\#5ecf4f\]\/90 { color: var(--fl-brand); }
+.fresh-ledger .bg-\[\#349f2d\],
+.fresh-ledger .bg-\[\#287e22\] { background-color: var(--fl-brand); }
+.fresh-ledger .hover\:bg-\[\#287e22\]:hover { background-color: var(--fl-brand-hover); }
+.fresh-ledger .border-\[\#349f2d\],
+.fresh-ledger .border-\[\#5ecf4f\] { border-color: var(--fl-brand); }
+.fresh-ledger .focus\:border-\[\#349f2d\]:focus { border-color: var(--fl-brand); }
+
+/* Brand tints — every low-opacity green fill becomes the one soft green */
+.fresh-ledger [class*="bg-[#349f2d]/"] { background-color: var(--fl-brand-soft); }
+.fresh-ledger [class*="border-[#349f2d]/"],
+.fresh-ledger [class*="border-[#5ecf4f]/"] { border-color: rgba(30, 92, 58, 0.28); }
+.fresh-ledger [class*="ring-[#349f2d]/"] { --tw-ring-color: rgba(30, 92, 58, 0.35); }
+.fresh-ledger [class*="bg-[#aba8a4]/"] { background-color: var(--fl-surface-2); }
+.fresh-ledger [class*="border-[#aba8a4]/"] { border-color: var(--fl-line); }
+
+/* Kill the multi-accent palette — no blue, no purple in the back office */
+.fresh-ledger .text-\[\#60a5fa\],
+.fresh-ledger .text-\[\#c084fc\],
+.fresh-ledger .text-\[\#a78bfa\],
+.fresh-ledger .text-blue-400, .fresh-ledger .text-blue-500,
+.fresh-ledger .text-purple-400, .fresh-ledger .text-purple-500,
+.fresh-ledger .text-indigo-400, .fresh-ledger .text-cyan-400 { color: var(--fl-brand); }
+.fresh-ledger .bg-blue-400, .fresh-ledger .bg-blue-500,
+.fresh-ledger .bg-purple-400, .fresh-ledger .bg-purple-500 { background-color: var(--fl-brand); }
+.fresh-ledger .border-blue-400, .fresh-ledger .border-blue-500,
+.fresh-ledger .border-purple-500 { border-color: var(--fl-brand); }
+.fresh-ledger [class*="bg-blue-500/"], .fresh-ledger [class*="bg-purple-500/"],
+.fresh-ledger [class*="bg-blue-400/"] { background-color: var(--fl-brand-soft); }
+.fresh-ledger [class*="border-blue-500/"], .fresh-ledger [class*="border-purple-500/"] {
+  border-color: rgba(30, 92, 58, 0.28);
+}
+
+/* Attention states — amber/orange/yellow all collapse to the one ember */
+.fresh-ledger .text-yellow-300, .fresh-ledger .text-yellow-400, .fresh-ledger .text-yellow-500,
+.fresh-ledger .text-orange-400, .fresh-ledger .text-orange-500,
+.fresh-ledger .text-amber-400, .fresh-ledger .text-\[\#f59e0b\] { color: var(--fl-accent); }
+.fresh-ledger .bg-yellow-400, .fresh-ledger .bg-yellow-500,
+.fresh-ledger .bg-orange-400, .fresh-ledger .bg-orange-500,
+.fresh-ledger .bg-amber-400 { background-color: var(--fl-accent); }
+.fresh-ledger .border-yellow-400, .fresh-ledger .border-yellow-500,
+.fresh-ledger .border-orange-400, .fresh-ledger .border-amber-400 { border-color: var(--fl-accent); }
+.fresh-ledger [class*="bg-yellow-400/"], .fresh-ledger [class*="bg-yellow-500/"],
+.fresh-ledger [class*="bg-orange-400/"], .fresh-ledger [class*="bg-amber-400/"] {
+  background-color: var(--fl-accent-soft);
+}
+.fresh-ledger [class*="border-yellow-400/"], .fresh-ledger [class*="border-amber-400/"],
+.fresh-ledger [class*="border-orange-400/"] { border-color: rgba(232, 134, 46, 0.35); }
+
+/* Negative states */
+.fresh-ledger .text-red-200, .fresh-ledger .text-red-300, .fresh-ledger .text-red-400 { color: var(--fl-bad); }
+.fresh-ledger .hover\:text-red-400:hover { color: var(--fl-bad); }
+.fresh-ledger [class*="bg-red-500/"] { background-color: #FBEAE8; }
+.fresh-ledger [class*="border-red-500/"] { border-color: rgba(192, 57, 43, 0.3); }
+
+/* Dark-theme white washes read as dirt on paper — retint to the brand */
+.fresh-ledger [class*="bg-white/"] { background-color: var(--fl-surface-2); }
+.fresh-ledger [class*="hover:bg-white/"]:hover { background-color: var(--fl-brand-soft); }
+.fresh-ledger [class*="border-white/"] { border-color: var(--fl-line); }
+
 body {
   background: var(--background);
   color: var(--foreground);

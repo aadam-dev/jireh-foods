@@ -27,10 +27,27 @@ function calcRevenue(orders: { total: unknown; paymentMethod: string; splitPayme
 
 const MANAGER_ROLES: UserRole[] = [UserRole.OWNER, UserRole.MANAGER];
 
+/* Shift accountability policy.
+   ────────────────────────────────────────────────────────────────────────────
+   Today the whole team shares one register, so anyone who can reach the POS may
+   open a shift and close any shift — including one left open from a previous
+   day. Every close still records closedBy, so the audit trail is intact even
+   though the gate is open.
+
+   To tighten later (own-shift-only for cashiers, managers for stale shifts),
+   flip this to false — the stricter logic below is still here and tested. */
+const ANY_POS_USER_MAY_CLOSE_ANY_SHIFT = true;
+
 function canCloseSession(role: UserRole, openedBy: string, userId: string, isStale: boolean): boolean {
+  if (ANY_POS_USER_MAY_CLOSE_ANY_SHIFT) return true;
   if (MANAGER_ROLES.includes(role)) return true;
   if (isStale) return false;
   return openedBy === userId;
+}
+
+/** Who may auto-close a stale shift in order to start a fresh one. */
+function canForceCloseStale(role: UserRole): boolean {
+  return ANY_POS_USER_MAY_CLOSE_ANY_SHIFT || MANAGER_ROLES.includes(role);
 }
 
 // GET /api/pos/sessions — current open session (if any)
@@ -93,7 +110,7 @@ export async function POST(req: NextRequest) {
           throw Object.assign(new Error('Stale session must be closed before opening a new shift'), { status: 409, code: 'STALE_OPEN' });
         }
         const role = (session.user as any).role as UserRole;
-        if (!MANAGER_ROLES.includes(role)) {
+        if (!canForceCloseStale(role)) {
           throw Object.assign(new Error('Only a manager can close a stale shift'), { status: 403 });
         }
         await tx.posSession.update({
@@ -142,6 +159,7 @@ export async function PATCH(req: NextRequest) {
     closingCash,
     closingMomo,
     closingBolt,
+    cashCount,
     notes,
   } = body;
 
@@ -190,6 +208,9 @@ export async function PATCH(req: NextRequest) {
       closedAt: new Date(),
       closedBy: session.user.id!,
       closingCash: actualCash,
+      closingMomo: actualMomo,
+      closingBolt: actualBolt,
+      cashCount: cashCount ?? undefined,
       status: 'CLOSED',
       notes: notes ?? null,
     },

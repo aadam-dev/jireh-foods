@@ -14,6 +14,8 @@ import { formatCurrency } from '@/src/lib/utils';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
+import { apiSend, errorMessage } from '@/src/lib/api-client';
+import { useToast } from '@/src/components/admin/ui/toast';
 
 const schema = z.object({
   userId: z.string().min(1, 'Select staff member'),
@@ -31,6 +33,7 @@ const STATUS_STYLES: Record<string, string> = {
 };
 
 export default function PayrollPage() {
+  const toast = useToast();
   const [records, setRecords] = useState<any[]>([]);
   const [staff, setStaff] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -68,18 +71,17 @@ export default function PayrollPage() {
     try {
       const start = startOfMonth(month);
       const end = endOfMonth(month);
-      await fetch('/api/admin/payroll', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...values,
-          periodStart: start.toISOString(),
-          periodEnd: end.toISOString(),
-        }),
+      await apiSend('/api/admin/payroll', 'POST', {
+        ...values,
+        periodStart: start.toISOString(),
+        periodEnd: end.toISOString(),
       });
       await fetchData();
       setAddModal(false);
       reset({ bonus: 0, deductions: 0 });
+      toast.success('Payroll record created.');
+    } catch (err) {
+      toast.error(errorMessage(err, 'Could not create that payroll record.'));
     } finally { setSaving(false); }
   };
 
@@ -87,13 +89,14 @@ export default function PayrollPage() {
     if (!approveDialog.record) return;
     setSaving(true);
     try {
-      await fetch('/api/admin/payroll', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: approveDialog.record.id, status: approveDialog.action }),
+      await apiSend('/api/admin/payroll', 'PATCH', {
+        id: approveDialog.record.id, status: approveDialog.action,
       });
       await fetchData();
       setApproveDialog({ open: false });
+      toast.success('Payroll updated.');
+    } catch (err) {
+      toast.error(errorMessage(err, 'Could not update that payroll record.'));
     } finally { setSaving(false); }
   };
 

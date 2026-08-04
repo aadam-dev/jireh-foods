@@ -4,6 +4,7 @@ import { prisma } from '@/src/lib/prisma';
 import { z } from 'zod';
 import { slugify } from '@/src/lib/utils';
 import { requireResource } from '@/src/lib/api-auth';
+import { plateEconomics } from '@/src/lib/plate-economics';
 
 const categorySchema = z.object({
   name: z.string().min(1),
@@ -38,10 +39,42 @@ export async function GET() {
   const categories = await prisma.menuCategory.findMany({
     orderBy: { sortOrder: 'asc' },
     include: {
-      items: { orderBy: { sortOrder: 'asc' } },
+      items: {
+        orderBy: { sortOrder: 'asc' },
+        include: {
+          // Recipe lines priced at current ingredient cost — the trustworthy
+          // input to plate cost. Falls back to costPrice when absent.
+          bom: {
+            where: { isActive: true },
+            include: { lines: { include: { inventoryItem: { select: { costPerUnit: true } } } } },
+          },
+        },
+      },
     },
   });
-  return NextResponse.json(categories);
+
+  // Decimals serialize as strings; coerce and attach plate economics so the
+  // menu manager and the register agree on the same numbers.
+  const serialized = categories.map(cat => ({
+    ...cat,
+    items: cat.items.map(item => {
+      const economics = plateEconomics({
+        price: item.price,
+        costPrice: item.costPrice,
+        bomLines: item.bom?.lines ?? null,
+      });
+      const { bom, ...rest } = item;
+      return {
+        ...rest,
+        price: Number(item.price),
+        costPrice: item.costPrice != null ? Number(item.costPrice) : null,
+        hasRecipe: !!bom,
+        economics,
+      };
+    }),
+  }));
+
+  return NextResponse.json(serialized);
 }
 
 export async function POST(req: NextRequest) {

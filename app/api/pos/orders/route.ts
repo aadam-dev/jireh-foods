@@ -3,10 +3,10 @@ import { auth } from '@/src/lib/auth';
 import { prisma } from '@/src/lib/prisma';
 import { z, ZodError } from 'zod';
 import { generateOrderNumber } from '@/src/lib/utils';
-import { getTaxRate } from '@/src/lib/settings';
+import { getTaxRate, isInventoryTrackingEnabled } from '@/src/lib/settings';
 import { logAudit } from '@/src/lib/audit';
-import { applyInventoryDelta } from '@/src/lib/api-auth';
 import { buildTransactionSnapshot, recordOrderEvent } from '@/src/lib/order-events';
+import { computeOrderTotals, sumMoney, lineTotal, changeDue, moneyEquals } from '@/src/lib/money';
 
 const orderItemSchema = z.object({
   menuItemId: z.string(),
@@ -17,6 +17,9 @@ const orderItemSchema = z.object({
   notes: z.string().optional(),
   // allow subtotal passthrough (cart persisted items may include it)
   subtotal: z.coerce.number().optional(),
+  /* Chosen modifiers, by option id only. The client never gets to say what an
+     extra costs — deltas are looked up server-side, exactly like base prices. */
+  modifierOptionIds: z.array(z.string()).optional(),
 });
 
 // A single leg of a split payment: method + amount + optional ref
@@ -41,6 +44,9 @@ const createOrderSchema = z.object({
   notes: z.string().optional(),
   // Split payment legs — required when paymentMethod === 'SPLIT'
   splitPayments: z.array(splitLegSchema).optional(),
+  /* Where the order came from. Defaults to the register; the intake screen
+     passes ONLINE or BOLT so channel mix on the dashboard stays honest. */
+  source: z.enum(['POS', 'ONLINE', 'BOLT', 'WALK_IN']).default('POS'),
 });
 
 export async function POST(req: NextRequest) {
@@ -72,7 +78,12 @@ export async function POST(req: NextRequest) {
   const userEmail = ((session.user as any).email ?? '').toLowerCase();
   const isItAdmin = userEmail === 'it@jireh.com';
 
-  if (!isItAdmin) {
+  /* An UNPAID ticket takes no money, so it does not need an open drawer — a
+     WhatsApp order can be logged at 9am before the register is opened, and is
+     settled later against whichever shift is running then. */
+  const takesMoney = data.paymentMethod !== 'UNPAID';
+
+  if (!isItAdmin && takesMoney) {
     // Real orders require an active open session
     if (!data.sessionId) {
       return NextResponse.json(
@@ -107,25 +118,70 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // Build verified items using canonical DB prices
+  /* ── Modifier verification ────────────────────────────────────────────
+     Look up every referenced option so the price delta and the display name
+     both come from the database, never from the request body. Unknown or
+     unavailable options are rejected rather than silently dropped — a ticket
+     that prints "Extra chicken" the kitchen never charged for is worse than
+     an error at the register. */
+  const requestedOptionIds = Array.from(
+    new Set(data.items.flatMap(i => i.modifierOptionIds ?? [])),
+  );
+
+  const optionMap = new Map<string, { id: string; name: string; priceDelta: number; groupName: string }>();
+  if (requestedOptionIds.length > 0) {
+    const options = await prisma.modifierOption.findMany({
+      where: { id: { in: requestedOptionIds }, isAvailable: true },
+      include: { group: { select: { name: true } } },
+    });
+    for (const o of options) {
+      optionMap.set(o.id, {
+        id: o.id,
+        name: o.name,
+        priceDelta: Number(o.priceDelta),
+        groupName: o.group.name,
+      });
+    }
+    const missing = requestedOptionIds.filter(id => !optionMap.has(id));
+    if (missing.length > 0) {
+      return NextResponse.json(
+        { error: 'One of the selected options is no longer available. Rebuild the item and try again.' },
+        { status: 400 },
+      );
+    }
+  }
+
+  // Build verified items using canonical DB prices (base + verified modifiers)
   const verifiedItems = data.items.map(item => {
     const dbItem = priceMap.get(item.menuItemId)!;
-    return { ...item, price: Number(dbItem.price), name: dbItem.name };
+    const chosen = (item.modifierOptionIds ?? []).map(id => optionMap.get(id)!);
+    const modifierTotal = chosen.reduce((s, o) => s + o.priceDelta, 0);
+    return {
+      ...item,
+      // Line price includes the extras, so subtotal/tax/BOM all stay consistent.
+      price: Number(dbItem.price) + modifierTotal,
+      name: dbItem.name,
+      chosenModifiers: chosen,
+    };
   });
 
-  const subtotal = verifiedItems.reduce((s, i) => s + i.price * i.quantity, 0);
-  const discountAmount = Math.min(data.discountAmount ?? 0, subtotal); // cap at subtotal
-  if ((data.discountAmount ?? 0) > subtotal) {
+  // Ghana Composite Levy — rate pulled from Settings table (set via /admin/settings)
+  const taxRate = await getTaxRate();
+  const preDiscountSubtotal = sumMoney(verifiedItems.map(i => lineTotal(i.price, i.quantity)));
+  if ((data.discountAmount ?? 0) > preDiscountSubtotal) {
     return NextResponse.json(
       { error: 'Discount cannot exceed the order subtotal' },
       { status: 400 }
     );
   }
-  const taxableAmount = subtotal - discountAmount;
-  // Ghana Composite Levy — rate pulled from Settings table (set via /admin/settings)
-  const taxRate = await getTaxRate();
-  const taxAmount = taxableAmount * taxRate;
-  const total = taxableAmount + taxAmount;
+  /* One definition of the bill, shared with the register — see src/lib/money.ts.
+     Every step rounds to whole pesewas so change owed and split-payment checks
+     never disagree with what the customer was shown. */
+  const { subtotal, discountAmount, taxableAmount, taxAmount, total } = computeOrderTotals({
+    lines: verifiedItems.map(i => ({ price: i.price, quantity: i.quantity })),
+    discountAmount: data.discountAmount ?? 0,
+    taxRate,
+  });
 
   // ── Split payment validation ─────────────────────────────────────────
   if (data.paymentMethod === 'SPLIT') {
@@ -157,17 +213,22 @@ export async function POST(req: NextRequest) {
     : undefined;
 
   const isDemo = isItAdmin; // demo orders are excluded from all revenue reporting
+  // Inventory tracking is OFF by default (informal business). The OWNER turns it
+  // on in Settings once recipes (BOMs) + stock counts are entered. Only then do
+  // sales deduct ingredients.
+  const trackInventory = await isInventoryTrackingEnabled();
 
   // Run order creation + BOM deductions atomically
-  let order;
-  try {
-    order = await prisma.$transaction(async (tx) => {
+  const order = await prisma.$transaction(async (tx) => {
     const created = await tx.order.create({
       data: {
         orderNumber: generateOrderNumber(),
         clientRef: data.clientRef ?? null,
-        status: 'COMPLETED',
-        source: 'POS',
+        /* An unpaid ticket has been sent to the kitchen but not settled, so it
+           must NOT be COMPLETED — that is exactly what keeps it on the open
+           tickets rail until someone takes the money. */
+        status: data.paymentMethod === 'UNPAID' ? 'PREPARING' : 'COMPLETED',
+        source: data.source,
         paymentMethod: data.paymentMethod as any,
         paymentStatus: data.paymentMethod === 'UNPAID' ? 'PENDING' : 'PAID',
         paymentRef: data.paymentRef ?? null,
@@ -191,16 +252,28 @@ export async function POST(req: NextRequest) {
             name: item.name,
             price: item.price,
             quantity: item.quantity,
-            subtotal: item.price * item.quantity,
+            subtotal: lineTotal(item.price, item.quantity),
             notes: item.notes,
+            modifiers: item.chosenModifiers.length
+              ? {
+                  create: item.chosenModifiers.map(o => ({
+                    optionId: o.id,
+                    groupName: o.groupName,
+                    name: o.name,
+                    priceDelta: o.priceDelta,
+                  })),
+                }
+              : undefined,
           })),
         },
       },
-      include: { items: true, staff: { select: { name: true } } },
+      include: { items: { include: { modifiers: true } }, staff: { select: { name: true } } },
     });
 
-    // BOM deductions — skip for demo orders (no real inventory impact)
-    if (!isDemo) {
+    // BOM deductions — only when inventory tracking is ON (and not a demo order).
+    // Defaults OFF; sales are recorded normally with no stock impact until the
+    // OWNER enables tracking in Settings.
+    if (!isDemo && trackInventory) {
       for (const item of data.items) {
         const bom = await tx.bom.findFirst({
           where: { menuItemId: item.menuItemId, isActive: true },
@@ -210,7 +283,15 @@ export async function POST(req: NextRequest) {
 
         for (const line of bom.lines) {
           const deductQty = Number(line.quantity) * item.quantity;
-          await applyInventoryDelta(tx, line.inventoryItemId, -deductQty);
+          // Allow-but-flag: NEVER block a paying customer over a possibly-stale
+          // count. Negative stock is permitted and surfaced as an "Oversold"
+          // badge in Inventory. Do NOT use applyInventoryDelta() here — that
+          // guard throws 409 on negative and is only for manual admin
+          // adjustments / PO receipts, not the live sale path.
+          await tx.inventoryItem.update({
+            where: { id: line.inventoryItemId },
+            data: { quantity: { decrement: deductQty } },
+          });
           await tx.inventoryTransaction.create({
             data: {
               itemId: line.inventoryItemId,
@@ -267,12 +348,6 @@ export async function POST(req: NextRequest) {
 
     return { ...created, transactionSnapshot: snapshot };
   });
-  } catch (err: any) {
-    if (err?.status === 409) {
-      return NextResponse.json({ error: err.message }, { status: 409 });
-    }
-    throw err;
-  }
 
   // Audit — fire-and-forget, never blocks the response
   void logAudit({
@@ -293,21 +368,116 @@ export async function GET(req: NextRequest) {
 
   const staffId = req.nextUrl.searchParams.get('staffId');
   const sessionId = req.nextUrl.searchParams.get('sessionId');
+  /* Open tickets: sent to the kitchen but not yet paid — the dine-in rail.
+     Not date-bounded, because a table that sat through midnight still has to
+     be settled in the morning. */
+  const openOnly = req.nextUrl.searchParams.get('open') === '1';
+
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
   const orders = await prisma.order.findMany({
     where: {
-      source: 'POS',
+      // The open rail covers every channel — a WhatsApp order still has to be
+      // cooked and settled. Today's register list stays POS-only.
+      ...(openOnly ? {} : { source: 'POS' as const }),
       isDemo: false,
-      createdAt: { gte: today },
+      ...(openOnly
+        ? { paymentStatus: 'PENDING', status: { notIn: ['COMPLETED', 'CANCELLED'] } }
+        : { createdAt: { gte: today } }),
       ...(staffId ? { staffId } : {}),
       ...(sessionId ? { sessionId } : {}),
     },
-    orderBy: { createdAt: 'desc' },
+    orderBy: { createdAt: openOnly ? 'asc' : 'desc' },
     take: 100,
-    include: { items: true, staff: { select: { name: true } } },
+    include: {
+      items: { include: { modifiers: true } },
+      staff: { select: { name: true } },
+    },
   });
 
   return NextResponse.json(orders);
+}
+
+const settleSchema = z.object({
+  orderId: z.string().min(1),
+  paymentMethod: z.enum(['CASH', 'MOMO', 'BOLT_FOOD', 'CARD', 'BANK_TRANSFER', 'SPLIT']),
+  paymentRef: z.string().optional(),
+  tenderedAmount: z.coerce.number().optional(),
+  splitPayments: z.array(splitLegSchema).optional(),
+});
+
+/* PATCH /api/pos/orders — settle an open ticket.
+   Payment only. Line items are deliberately immutable here: once a ticket has
+   gone to the kitchen, changing what was cooked is a void-and-reorder, not an
+   edit, so the audit trail stays honest. */
+export async function PATCH(req: NextRequest) {
+  const session = await auth();
+  if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  const parsed = settleSchema.safeParse(await req.json());
+  if (!parsed.success) {
+    return NextResponse.json({ error: parsed.error.errors[0]?.message ?? 'Invalid request' }, { status: 400 });
+  }
+  const data = parsed.data;
+
+  const order = await prisma.order.findUnique({ where: { id: data.orderId } });
+  if (!order) return NextResponse.json({ error: 'Ticket not found' }, { status: 404 });
+  if (order.paymentStatus === 'PAID') {
+    return NextResponse.json({ error: 'This ticket has already been paid.' }, { status: 409 });
+  }
+  if (order.status === 'CANCELLED') {
+    return NextResponse.json({ error: 'This ticket was voided.' }, { status: 409 });
+  }
+
+  const total = Number(order.total);
+
+  if (data.paymentMethod === 'SPLIT') {
+    if (!data.splitPayments || data.splitPayments.length < 2) {
+      return NextResponse.json({ error: 'Split payment requires at least 2 payment legs.' }, { status: 400 });
+    }
+    const splitTotal = data.splitPayments.reduce((s, p) => s + p.amount, 0);
+    if (Math.abs(splitTotal - total) > 0.01) {
+      return NextResponse.json(
+        { error: `Split legs must add up to ${total.toFixed(2)}.` },
+        { status: 400 },
+      );
+    }
+  }
+
+  const cashLeg = data.paymentMethod === 'SPLIT'
+    ? data.splitPayments?.find(p => p.method === 'CASH')
+    : undefined;
+  const tendered = cashLeg ? cashLeg.amount : data.tenderedAmount;
+  const changeAmount = data.paymentMethod === 'CASH' && tendered != null
+    ? Math.max(0, tendered - total)
+    : 0;
+
+  // Payment and its audit event land together or not at all.
+  const settled = await prisma.$transaction(async tx => {
+    const updated = await tx.order.update({
+      where: { id: order.id },
+      data: {
+        paymentMethod: data.paymentMethod as any,
+        paymentStatus: 'PAID',
+        paymentRef: data.paymentRef ?? null,
+        tenderedAmount: data.tenderedAmount ?? null,
+        changeAmount,
+        splitPayments: data.splitPayments ? (data.splitPayments as any) : undefined,
+        status: 'COMPLETED',
+      },
+      include: { items: { include: { modifiers: true } }, staff: { select: { name: true } } },
+    });
+
+    await recordOrderEvent(tx, {
+      orderId: order.id,
+      type: 'PAYMENT_UPDATED',
+      actorUserId: session.user.id,
+      payload: { paymentMethod: data.paymentMethod, total },
+    });
+
+    return updated;
+  });
+
+  return NextResponse.json(settled);
 }

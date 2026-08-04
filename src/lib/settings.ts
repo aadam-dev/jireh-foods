@@ -50,3 +50,15 @@ export async function getBusinessName(): Promise<string> {
 export async function getGraTin(): Promise<string> {
   return getSetting('gra_tin', '');
 }
+
+/**
+ * Whether POS sales deduct ingredient stock via BOMs.
+ * Default OFF — this is an informal business that doesn't strictly track
+ * ingredient usage yet. The OWNER turns this on in Settings once recipes
+ * (BOMs) and stock counts are entered. When ON, the sale path still uses
+ * allow-but-flag (a stale count never blocks a sale; negative shows as
+ * "Oversold" in Inventory).
+ */
+export async function isInventoryTrackingEnabled(): Promise<boolean> {
+  return (await getSetting('inventory_tracking', 'false')) === 'true';
+}

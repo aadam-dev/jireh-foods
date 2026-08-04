@@ -2,6 +2,10 @@
 import type { NextAuthConfig } from 'next-auth';
 
 export const authConfig: NextAuthConfig = {
+  /* Must match src/lib/auth.ts. The middleware builds its own NextAuth
+     instance from this config, so setting trustHost only on the server config
+     leaves every middleware-handled request failing with UntrustedHost. */
+  trustHost: true,
   pages: {
     signIn: '/login',
     error: '/login',
@@ -35,6 +39,18 @@ export const authConfig: NextAuthConfig = {
       const isAdminRoute = nextUrl.pathname.startsWith('/admin') || nextUrl.pathname.startsWith('/api/admin');
       const isPosRoute = nextUrl.pathname.startsWith('/pos') || nextUrl.pathname.startsWith('/api/pos');
       const isPosOnlyRole = role === 'CASHIER' || role === 'STAFF';
+      const isApiRoute = nextUrl.pathname.startsWith('/api/');
+
+      // This callback runs BEFORE the middleware body, so it — not the 401
+      // branch in middleware.ts — decides what an unauthenticated API call
+      // gets back. Redirecting an API request to the HTML login page makes
+      // fetch() resolve 200 with a page body, which the POS offline queue then
+      // fails to parse and reports as a generic error instead of "signed out".
+      // Answer API routes with JSON and let pages redirect.
+      const deny = (status: number, error: string) =>
+        isApiRoute
+          ? Response.json({ error }, { status })
+          : Response.redirect(new URL(status === 403 ? '/pos' : '/login', nextUrl));
 
       // Redirect logged-in users away from login — respect callbackUrl
       if (isLoggedIn && isLoginPage) {
@@ -43,15 +59,15 @@ export const authConfig: NextAuthConfig = {
         return Response.redirect(new URL(wantsPOS ? '/pos' : '/admin', nextUrl));
       }
 
-      // Protect admin routes — redirect POS-only roles to /pos
+      // Protect admin routes — POS-only roles are forbidden, not unauthenticated
       if (isAdminRoute) {
-        if (!isLoggedIn) return Response.redirect(new URL('/login', nextUrl));
-        if (isPosOnlyRole) return Response.redirect(new URL('/pos', nextUrl));
+        if (!isLoggedIn) return deny(401, 'Unauthorized');
+        if (isPosOnlyRole) return deny(403, 'Forbidden');
       }
 
       // Protect POS routes
       if (isPosRoute && !isLoggedIn) {
-        return Response.redirect(new URL('/login', nextUrl));
+        return deny(401, 'Unauthorized');
       }
 
       return true;

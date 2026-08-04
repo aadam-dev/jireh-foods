@@ -17,13 +17,14 @@ const dmSans = DM_Sans({
 });
 
 export const metadata: Metadata = {
-  title: "Jireh Natural Foods | Adenta",
+  title: "Jireh Natural Foods | Award-Winning Natural Food in Adenta",
   description:
-    "Natural Ghanaian meals, grilled specials and wholesome juices. No monosodium foods at Jireh Natural Foods, Adenta Housing Down.",
+    "Start-Up Food Business of the Year 2026. Natural Ghanaian meals, grilled specials and wholesome juices. No monosodium foods at Jireh Natural Foods, Adenta Housing Down.",
   openGraph: {
-    title: "Jireh Natural Foods | Adenta",
+    title: "Jireh Natural Foods | Award-Winning Natural Food in Adenta",
     description:
-      "Home-style Ghanaian dishes, grilled chicken and fresh juices. No monosodium foods. Adenta Housing Down, Accra.",
+      "Winner — Start-Up Food Business of the Year 2026. Home-style Ghanaian dishes, grilled chicken and fresh juices. No monosodium foods. Adenta Housing Down, Accra.",
+    images: ["/jireh/hero.jpg"],
   },
 };
 
@@ -31,7 +32,9 @@ const localBusinessJsonLd = {
   "@context": "https://schema.org",
   "@type": "Restaurant",
   name: "Jireh Natural Foods",
-  image: "https://images.unsplash.com/photo-1604908176997-125188eb3dd3?w=800&q=80",
+  image: "/jireh/hero.jpg",
+  servesCuisine: "Ghanaian",
+  award: "Start-Up Food Business of the Year 2026 — Feleb Concepts Honours",
   address: {
     "@type": "PostalAddress",
     streetAddress: "Adenta Housing Down",

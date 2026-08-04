@@ -64,7 +64,7 @@ export function Modal({ open, onClose, title, children, size = 'md', footer }: M
             <button
               onClick={onClose}
               className="text-[#aba8a4] hover:text-[#f4efeb] transition-colors p-1 rounded-lg hover:bg-white/5"
-            >
+             aria-label="Close">
               <X size={18} />
             </button>
           </div>

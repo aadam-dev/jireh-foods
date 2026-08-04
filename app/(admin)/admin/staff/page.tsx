@@ -13,6 +13,8 @@ import { ROLE_LABELS, ROLE_COLORS } from '@/src/lib/permissions';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
+import { apiSend, errorMessage } from '@/src/lib/api-client';
+import { useToast } from '@/src/components/admin/ui/toast';
 
 const createSchema = z.object({
   name: z.string().min(1, 'Required'),
@@ -52,6 +54,7 @@ const getMemberRoleLabel = (member: any) =>
   member.email === 'it@jireh.com' ? 'IT Admin' : (ROLE_LABELS[member.role as keyof typeof ROLE_LABELS] ?? member.role);
 
 export default function StaffPage() {
+  const toast = useToast();
   const [staff, setStaff] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [addModal, setAddModal] = useState(false);
@@ -113,36 +116,37 @@ export default function StaffPage() {
     setSaving(true);
     try {
       const { newPassword, ...rest } = values;
-      await fetch(`/api/admin/staff/${editModal.member.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...rest,
-          ...(newPassword ? { newPassword } : {}),
-          staffProfile: {
-            phone: rest.phone,
-            hireDate: rest.hireDate || undefined,
-            salaryType: rest.salaryType,
-            salary: rest.salary,
-            bankName: rest.bankName,
-            bankAccount: rest.bankAccount,
-          },
-        }),
+      await apiSend(`/api/admin/staff/${editModal.member.id}`, 'PATCH', {
+        ...rest,
+        ...(newPassword ? { newPassword } : {}),
+        staffProfile: {
+          phone: rest.phone,
+          hireDate: rest.hireDate || undefined,
+          salaryType: rest.salaryType,
+          salary: rest.salary,
+          bankName: rest.bankName,
+          bankAccount: rest.bankAccount,
+        },
       });
       await fetchStaff();
       setEditModal({ open: false });
+      toast.success('Staff details updated.');
+    } catch (err) {
+      toast.error(errorMessage(err, 'Could not update this staff member.'));
     } finally { setSaving(false); }
   };
 
   const toggleActive = async () => {
     if (!toggleDialog.member) return;
-    await fetch(`/api/admin/staff/${toggleDialog.member.id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ isActive: !toggleDialog.member.isActive }),
-    });
-    await fetchStaff();
-    setToggleDialog({ open: false });
+    const activating = !toggleDialog.member.isActive;
+    try {
+      await apiSend(`/api/admin/staff/${toggleDialog.member.id}`, 'PATCH', { isActive: activating });
+      await fetchStaff();
+      setToggleDialog({ open: false });
+      toast.success(activating ? 'Staff member reactivated.' : 'Staff member deactivated.');
+    } catch (err) {
+      toast.error(errorMessage(err, 'Could not change that staff member.'));
+    }
   };
 
   const StaffFormFields = ({ register, errors, showPassword = false }: any) => (
