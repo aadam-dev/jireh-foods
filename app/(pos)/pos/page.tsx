@@ -14,6 +14,7 @@ import { formatCurrency, formatTime } from '@/src/lib/utils';
 import { enqueueOrder, getPendingOrders, syncPendingOrders } from '@/src/lib/offlineQueue';
 import { classifyRegisterSession } from '@/src/lib/session-utils';
 import { computeOrderTotals, changeDue } from '@/src/lib/money';
+import { VARIANCE_NOTE_THRESHOLD } from '@/src/lib/shift-reconciliation';
 import { DEVELOPER_CREDIT, RECEIPT_CREDIT_LINES } from '@/src/lib/developer-credit';
 
 /* ─── Types ─────────────────────────────────────────────────────────── */
@@ -563,6 +564,12 @@ export default function POSPage() {
   const [sessionStats, setSessionStats] = useState<SessionStats>({ revenue: 0, cashRevenue: 0, momoRevenue: 0, boltRevenue: 0 });
   const checkoutClientRef = useRef<string | null>(null);
   const [openingFloatStr, setOpeningFloatStr] = useState('0');
+  /* Empty string, not '0'. A MoMo balance nobody checked must stay unrecorded —
+     a zero we invented looks authoritative and quietly makes the first close
+     wrong by whatever was actually in the wallet. */
+  const [openingMomoStr, setOpeningMomoStr] = useState('');
+  /** Which figure the numpad is currently editing on the open-shift screen. */
+  const [openingField, setOpeningField] = useState<'cash' | 'momo'>('cash');
   const [closingCashStr, setClosingCashStr] = useState('0');
   const [closingMomoStr, setClosingMomoStr] = useState('0');
   const [closingBoltStr, setClosingBoltStr] = useState('0');
@@ -581,6 +588,8 @@ export default function POSPage() {
   /** Drawer count by denomination — the source of truth for closing cash. */
   const [cashCounts, setCashCounts] = useState<Record<string, number>>({});
   const [countMode, setCountMode] = useState<'notes' | 'total'>('notes');
+  /** Explanation for a difference. Required once it passes the threshold. */
+  const [closingNotes, setClosingNotes] = useState('');
   const [sessionLoading, setSessionLoading] = useState(false);
   const [closingSummary, setClosingSummary] = useState<any>(null);
 
@@ -926,6 +935,7 @@ export default function POSPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           openingFloat: parseFloat(openingFloatStr),
+          openingMomo: openingMomoStr.trim() === '' ? null : parseFloat(openingMomoStr),
           forceCloseStale,
         }),
       });
@@ -976,6 +986,7 @@ export default function POSPage() {
           closingMomo: parseFloat(closingMomoStr) || 0,
           closingBolt: parseFloat(closingBoltStr) || 0,
           cashCount: countMode === 'notes' && Object.keys(cashCounts).length > 0 ? cashCounts : null,
+          notes: closingNotes.trim() || null,
         }),
       });
       if (res.ok) {
@@ -987,6 +998,7 @@ export default function POSPage() {
         setSessionStats({ revenue: 0, cashRevenue: 0, momoRevenue: 0, boltRevenue: 0 });
         writeAcknowledgedShift(null, userId);
         setCashCounts({});
+        setClosingNotes('');
         setClosingCashStr('0');
         setClosingMomoStr('0');
         setClosingBoltStr('0');
@@ -1383,10 +1395,44 @@ export default function POSPage() {
           <h2 className="text-lg font-bold text-[#f4efeb] font-serif">Open Today&apos;s Shift</h2>
           <p className="text-xs text-[#aba8a4] mt-1">Enter the cash float in the drawer to begin. Required for accounting.</p>
         </div>
-        <div>
-          <p className="text-xs text-[#aba8a4] mb-2">Opening Cash Float (GH₵)</p>
-          <p className="text-2xl font-bold text-[#5ecf4f] font-mono text-center mb-3">{formatCurrency(parseFloat(openingFloatStr) || 0)}</p>
-          <Numpad value={openingFloatStr} onChange={setOpeningFloatStr}/>
+<div className="space-y-3">
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              onClick={() => setOpeningField('cash')}
+              className={`rounded-xl border px-3 py-2.5 text-left transition-colors ${
+                openingField === 'cash'
+                  ? 'border-[#349f2d]/50 bg-[#349f2d]/15'
+                  : 'border-[#2b2f2b] bg-[#111311]'
+              }`}
+            >
+              <span className="block text-[10px] uppercase tracking-wide text-[#aba8a4]">Cash in drawer</span>
+              <span className="block font-mono text-lg font-bold text-[#f4efeb]">
+                {formatCurrency(parseFloat(openingFloatStr) || 0)}
+              </span>
+            </button>
+            <button
+              onClick={() => setOpeningField('momo')}
+              className={`rounded-xl border px-3 py-2.5 text-left transition-colors ${
+                openingField === 'momo'
+                  ? 'border-[#349f2d]/50 bg-[#349f2d]/15'
+                  : 'border-[#2b2f2b] bg-[#111311]'
+              }`}
+            >
+              <span className="block text-[10px] uppercase tracking-wide text-[#aba8a4]">MoMo balance</span>
+              <span className={`block font-mono text-lg font-bold ${openingMomoStr.trim() === '' ? 'text-[#aba8a4]' : 'text-[#f4efeb]'}`}>
+                {openingMomoStr.trim() === '' ? 'Not set' : formatCurrency(parseFloat(openingMomoStr) || 0)}
+              </span>
+            </button>
+          </div>
+          <Numpad
+            value={openingField === 'cash' ? openingFloatStr : (openingMomoStr || '0')}
+            onChange={v => (openingField === 'cash' ? setOpeningFloatStr(v) : setOpeningMomoStr(v))}
+          />
+          <p className="text-[11px] leading-snug text-[#aba8a4]">
+            {openingField === 'cash'
+              ? 'Count the cash already in the drawer. Enter 0 if it is empty.'
+              : 'Check the MoMo wallet balance now, so what you receive today can be told apart from what was already there. Skip it if you cannot check.'}
+          </p>
         </div>
         <button onClick={() => openSession()} disabled={sessionLoading}
           className="w-full bg-[#349f2d] hover:bg-[#287e22] disabled:opacity-40 text-white rounded-2xl py-3.5 font-bold text-sm transition active:scale-[0.98] shadow-[0_0_20px_rgba(52,159,45,0.3)]">
@@ -1714,7 +1760,49 @@ export default function POSPage() {
                       </div>
                     )}
 
-                    <button onClick={() => closeSession()} disabled={sessionLoading}
+                    {/* A difference this size has to be explained. "GH₵40 short"
+                        tells nobody anything; "GH₵40 short — paid the water man"
+                        is the whole point of the field. */}
+                    {(() => {
+                      const noteRequired =
+                        Math.abs(cashDisc) >= VARIANCE_NOTE_THRESHOLD ||
+                        Math.abs(momoDisc) >= VARIANCE_NOTE_THRESHOLD;
+                      return (
+                        <div className="space-y-1.5">
+                          <label className="flex items-center justify-between text-xs text-[#aba8a4]">
+                            <span>What happened?{noteRequired && <span className="text-yellow-400"> · required</span>}</span>
+                          </label>
+                          <textarea
+                            value={closingNotes}
+                            onChange={e => setClosingNotes(e.target.value)}
+                            rows={2}
+                            placeholder={
+                              noteRequired
+                                ? 'e.g. paid the water man GH₵40 from the drawer'
+                                : 'Anything worth noting about this shift (optional)'
+                            }
+                            className={`w-full resize-none rounded-xl border bg-[#111311] px-3 py-2 text-sm text-[#f4efeb] placeholder:text-[#aba8a4]/50 focus:outline-none ${
+                              noteRequired && !closingNotes.trim()
+                                ? 'border-yellow-500/50 focus:border-yellow-400'
+                                : 'border-[#2b2f2b] focus:border-[#349f2d]'
+                            }`}
+                          />
+                          {noteRequired && !closingNotes.trim() && (
+                            <p className="text-[11px] text-yellow-400">
+                              The count is off by more than {formatCurrency(VARIANCE_NOTE_THRESHOLD)}. Say why before closing.
+                            </p>
+                          )}
+                        </div>
+                      );
+                    })()}
+
+                    <button
+                      onClick={() => closeSession()}
+                      disabled={
+                        sessionLoading ||
+                        ((Math.abs(cashDisc) >= VARIANCE_NOTE_THRESHOLD ||
+                          Math.abs(momoDisc) >= VARIANCE_NOTE_THRESHOLD) && !closingNotes.trim())
+                      }
                       className="w-full bg-red-600 hover:bg-red-700 disabled:opacity-40 text-white rounded-xl py-3 font-semibold text-sm transition-colors">
                       {sessionLoading ? 'Closing…' : 'Close Shift'}
                     </button>
@@ -1727,11 +1815,45 @@ export default function POSPage() {
             <div className="bg-[#191c19] border border-[#2b2f2b] rounded-2xl p-4 space-y-4">
               <div className="flex items-center gap-2 text-[#aba8a4]"><Lock size={16}/><span className="font-semibold text-sm text-[#f4efeb]">No Active Session</span></div>
               <p className="text-xs text-[#aba8a4]">Open a new shift to start taking orders.</p>
-              <div>
-                <p className="text-xs text-[#aba8a4] mb-2">Opening Cash Float</p>
-                <p className="text-2xl font-bold text-[#5ecf4f] font-mono mb-3">{formatCurrency(parseFloat(openingFloatStr) || 0)}</p>
-                <Numpad value={openingFloatStr} onChange={setOpeningFloatStr}/>
-              </div>
+<div className="space-y-3">
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              onClick={() => setOpeningField('cash')}
+              className={`rounded-xl border px-3 py-2.5 text-left transition-colors ${
+                openingField === 'cash'
+                  ? 'border-[#349f2d]/50 bg-[#349f2d]/15'
+                  : 'border-[#2b2f2b] bg-[#111311]'
+              }`}
+            >
+              <span className="block text-[10px] uppercase tracking-wide text-[#aba8a4]">Cash in drawer</span>
+              <span className="block font-mono text-lg font-bold text-[#f4efeb]">
+                {formatCurrency(parseFloat(openingFloatStr) || 0)}
+              </span>
+            </button>
+            <button
+              onClick={() => setOpeningField('momo')}
+              className={`rounded-xl border px-3 py-2.5 text-left transition-colors ${
+                openingField === 'momo'
+                  ? 'border-[#349f2d]/50 bg-[#349f2d]/15'
+                  : 'border-[#2b2f2b] bg-[#111311]'
+              }`}
+            >
+              <span className="block text-[10px] uppercase tracking-wide text-[#aba8a4]">MoMo balance</span>
+              <span className={`block font-mono text-lg font-bold ${openingMomoStr.trim() === '' ? 'text-[#aba8a4]' : 'text-[#f4efeb]'}`}>
+                {openingMomoStr.trim() === '' ? 'Not set' : formatCurrency(parseFloat(openingMomoStr) || 0)}
+              </span>
+            </button>
+          </div>
+          <Numpad
+            value={openingField === 'cash' ? openingFloatStr : (openingMomoStr || '0')}
+            onChange={v => (openingField === 'cash' ? setOpeningFloatStr(v) : setOpeningMomoStr(v))}
+          />
+          <p className="text-[11px] leading-snug text-[#aba8a4]">
+            {openingField === 'cash'
+              ? 'Count the cash already in the drawer. Enter 0 if it is empty.'
+              : 'Check the MoMo wallet balance now, so what you receive today can be told apart from what was already there. Skip it if you cannot check.'}
+          </p>
+        </div>
               <button onClick={() => openSession()} disabled={sessionLoading}
                 className="w-full bg-[#349f2d] hover:bg-[#287e22] disabled:opacity-40 text-white rounded-xl py-3 font-semibold text-sm transition-colors">
                 {sessionLoading ? 'Opening…' : 'Open Shift'}

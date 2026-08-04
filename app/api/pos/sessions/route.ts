@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/src/lib/auth';
 import { prisma } from '@/src/lib/prisma';
 import { classifyRegisterSession } from '@/src/lib/session-utils';
+import { reconcileShift, VARIANCE_NOTE_THRESHOLD } from '@/src/lib/shift-reconciliation';
 import { UserRole } from '@prisma/client';
 
 // Break down orders into per-method revenue, handling SPLIT orders correctly.
@@ -92,6 +93,14 @@ export async function POST(req: NextRequest) {
 
   const body = await req.json();
   const openingFloat = parseFloat(body.openingFloat ?? '0');
+  /* Null, not 0, when the cashier skips it. MoMo is received into a wallet that
+     already holds a balance, so "expected MoMo" is meaningless without this —
+     and recording a zero we did not actually check is worse than recording
+     nothing, because it looks authoritative. */
+  const openingMomo =
+    body.openingMomo === undefined || body.openingMomo === null || body.openingMomo === ''
+      ? null
+      : parseFloat(body.openingMomo);
   const forceCloseStale = body.forceCloseStale === true;
 
   try {
@@ -130,6 +139,7 @@ export async function POST(req: NextRequest) {
         data: {
           openedBy: session.user.id!,
           openingFloat,
+          openingMomo,
           status: 'OPEN',
           notes: body.notes ?? null,
         },
@@ -187,10 +197,46 @@ export async function PATCH(req: NextRequest) {
 
   const { revenue: totalRevenue, cashRevenue, momoRevenue, boltRevenue } = calcRevenue(orders as any);
 
-  const expectedCash = Number(pos.openingFloat) + cashRevenue;
+  /* Money that crossed the drawer for reasons other than sales. Without folding
+     these in, a cashier who paid the gas man out of the till closes short and
+     looks like a thief. */
+  const movements = await prisma.drawerMovement.findMany({
+    where: { sessionId },
+    select: { tender: true, direction: true, amount: true },
+  });
+
   const actualCash = parseFloat(closingCash ?? '0');
   const actualMomo = closingMomo != null ? parseFloat(closingMomo) : momoRevenue;
   const actualBolt = closingBolt != null ? parseFloat(closingBolt) : boltRevenue;
+
+  // Same helper the register and the session report use — see src/lib/shift-reconciliation.ts
+  const reconciliation = reconcileShift({
+    openingCash: pos.openingFloat as any,
+    openingMomo: pos.openingMomo as any,
+    cashSales: cashRevenue,
+    momoSales: momoRevenue,
+    boltSales: boltRevenue,
+    movements: movements.map(m => ({ tender: m.tender, direction: m.direction, amount: Number(m.amount) })),
+    countedCash: actualCash,
+    countedMomo: actualMomo,
+  });
+
+  const expectedCash = reconciliation.cash.expected;
+  const expectedMomo = reconciliation.momo.expected;
+
+  /* A material difference has to be explained before the shift can close.
+     Turning "GH₵40 short" into "GH₵40 short — paid the water man" is the whole
+     value of the field. */
+  if (reconciliation.requiresNote && !String(notes ?? '').trim()) {
+    return NextResponse.json(
+      {
+        error: `The count is off by more than GH₵${VARIANCE_NOTE_THRESHOLD}. Add a note explaining why before closing.`,
+        code: 'NOTE_REQUIRED',
+        reconciliation,
+      },
+      { status: 400 },
+    );
+  }
 
   const revenueByMethod: Record<string, number> = {
     CASH: cashRevenue, MOMO: momoRevenue, BOLT_FOOD: boltRevenue,
@@ -210,6 +256,10 @@ export async function PATCH(req: NextRequest) {
       closingCash: actualCash,
       closingMomo: actualMomo,
       closingBolt: actualBolt,
+      // Frozen at close so the record still explains itself if a later movement
+      // or a re-priced order would change the arithmetic.
+      expectedCash,
+      expectedMomo,
       cashCount: cashCount ?? undefined,
       status: 'CLOSED',
       notes: notes ?? null,
@@ -226,12 +276,14 @@ export async function PATCH(req: NextRequest) {
       orderCount: orders.length,
       totalRevenue,
       revenueByMethod,
-      cash:  { expected: expectedCash,  actual: actualCash, discrepancy: actualCash - expectedCash },
-      momo:  { expected: momoRevenue,   actual: actualMomo, discrepancy: actualMomo - momoRevenue },
-      bolt:  { expected: boltRevenue,   actual: actualBolt, discrepancy: actualBolt - boltRevenue },
+      cash:  { expected: expectedCash, actual: actualCash, discrepancy: reconciliation.cash.difference ?? 0 },
+      momo:  { expected: expectedMomo, actual: actualMomo, discrepancy: reconciliation.momo.difference ?? 0 },
+      // Bolt is a platform payout, never counted — reported for reference only.
+      bolt:  { expected: boltRevenue,  actual: boltRevenue, discrepancy: 0 },
+      reconciliation,
       expectedCash,
       closingCash: actualCash,
-      discrepancy: actualCash - expectedCash,
+      discrepancy: reconciliation.cash.difference ?? 0,
     },
   });
 }

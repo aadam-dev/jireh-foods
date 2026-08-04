@@ -12,7 +12,9 @@
     "db:studio": "prisma studio",
     "db:seed": "tsx prisma/seed.ts",
     "db:seed:api": "node prisma/seed-via-api.mjs",
-    "test:money": "tsx --test src/lib/money.test.ts"
+    "test:money": "tsx --test src/lib/money.test.ts",
+    "test:shift": "tsx --test src/lib/shift-reconciliation.test.ts",
+    "test": "tsx --test src/lib/*.test.ts"
   },
   "dependencies": {
     "@ducanh2912/next-pwa": "^10.2.9",

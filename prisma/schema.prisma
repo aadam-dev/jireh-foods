@@ -68,6 +68,33 @@ enum SalaryType {
   HOURLY
 }
 
+/**
+ * Money crossing the register for a reason other than a sale.
+ * Without these, a cashier who paid the gas man out of the drawer closes short
+ * and looks like a thief — the loss lands in the closing difference, which is
+ * meant to mean "cash we cannot account for".
+ */
+enum DrawerDirection {
+  IN
+  OUT
+}
+
+enum DrawerTender {
+  CASH
+  MOMO
+}
+
+enum DrawerReason {
+  MARKET_RUN // ingredients bought during service
+  EXPENSE // gas, water, transport, small purchases
+  OWNER_DRAWING // owner took cash
+  STAFF_PAYMENT // wages or an advance paid out
+  FLOAT_TOP_UP // change added to the drawer
+  CASH_TO_MOMO // deposited drawer cash into the MoMo wallet
+  MOMO_TO_CASH // withdrew from the wallet into the drawer
+  OTHER
+}
+
 enum SessionStatus {
   OPEN
   CLOSED
@@ -116,15 +143,16 @@ model User {
   createdAt             DateTime @default(now())
   updatedAt             DateTime @updatedAt
 
-  staffProfile   StaffProfile?
-  orders         Order[]
-  orderEvents    OrderEvent[]
-  auditLogs      AuditLog[]
-  payrollRecords PayrollRecord[]
-  openedSessions PosSession[]    @relation("OpenedSessions")
-  closedSessions PosSession[]    @relation("ClosedSessions")
-  createdPOs     PurchaseOrder[] @relation("CreatedPOs")
-  receivedPOs    PoReceipt[]     @relation("ReceivedPOs")
+  staffProfile    StaffProfile?
+  orders          Order[]
+  orderEvents     OrderEvent[]
+  auditLogs       AuditLog[]
+  payrollRecords  PayrollRecord[]
+  drawerMovements DrawerMovement[]
+  openedSessions  PosSession[]     @relation("OpenedSessions")
+  closedSessions  PosSession[]     @relation("ClosedSessions")
+  createdPOs      PurchaseOrder[]  @relation("CreatedPOs")
+  receivedPOs     PoReceipt[]      @relation("ReceivedPOs")
 }
 
 model StaffProfile {
@@ -153,7 +181,21 @@ model PosSession {
   closedByUser User?         @relation("ClosedSessions", fields: [closedBy], references: [id])
   openedAt     DateTime      @default(now())
   closedAt     DateTime?
+  /**
+   * Cash counted into the drawer at open.
+   */
   openingFloat Decimal       @db.Decimal(10, 2)
+  /**
+   * MoMo wallet balance at open. Null means it was never recorded — that is
+   * different from a zero balance, and the report says so rather than implying
+   * the wallet started empty.
+   */
+  openingMomo  Decimal?      @db.Decimal(10, 2)
+  /**
+   * What the system said should be there at close, frozen at that moment.
+   */
+  expectedCash Decimal?      @db.Decimal(10, 2)
+  expectedMomo Decimal?      @db.Decimal(10, 2)
   closingCash  Decimal?      @db.Decimal(10, 2)
   // Counted at close alongside cash — previously computed for the summary and
   // then discarded, so a MoMo shortfall left no record after the shift ended.
@@ -166,12 +208,46 @@ model PosSession {
   status       SessionStatus @default(OPEN)
   notes        String?
 
-  orders Order[]
+  orders    Order[]
+  movements DrawerMovement[]
 
   @@index([status])
   @@index([openedAt])
   @@index([openedBy])
   @@index([closedBy])
+}
+
+/**
+ * One row per tender affected. A cash→MoMo transfer is two rows sharing a
+ * transferGroupId (cash OUT, MoMo IN), which keeps "expected per tender" a
+ * plain sum instead of a special case.
+ */
+model DrawerMovement {
+  id              String          @id @default(cuid())
+  sessionId       String
+  session         PosSession      @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  direction       DrawerDirection
+  tender          DrawerTender
+  amount          Decimal         @db.Decimal(10, 2)
+  reason          DrawerReason
+  note            String?
+  actorUserId     String?
+  actor           User?           @relation(fields: [actorUserId], references: [id])
+  /**
+   * Set when the movement is a real cost, so it also reaches the expense books.
+   */
+  expenseId       String?
+  expense         Expense?        @relation(fields: [expenseId], references: [id])
+  /**
+   * Links the two halves of a tender transfer.
+   */
+  transferGroupId String?
+  createdAt       DateTime        @default(now())
+
+  @@index([sessionId])
+  @@index([actorUserId])
+  @@index([expenseId])
+  @@index([transferGroupId])
 }
 
 // ─── Menu ─────────────────────────────────────────────────────────────────────
@@ -537,17 +613,18 @@ model ExpenseCategory {
 }
 
 model Expense {
-  id            String          @id @default(cuid())
-  categoryId    String
-  category      ExpenseCategory @relation(fields: [categoryId], references: [id])
-  description   String
-  amount        Decimal         @db.Decimal(10, 2)
-  paymentMethod PaymentMethod   @default(CASH)
-  receiptUrl    String?
-  date          DateTime        @default(now())
-  notes         String?
-  createdAt     DateTime        @default(now())
-  updatedAt     DateTime        @updatedAt
+  id              String           @id @default(cuid())
+  categoryId      String
+  category        ExpenseCategory  @relation(fields: [categoryId], references: [id])
+  description     String
+  amount          Decimal          @db.Decimal(10, 2)
+  paymentMethod   PaymentMethod    @default(CASH)
+  receiptUrl      String?
+  drawerMovements DrawerMovement[]
+  date            DateTime         @default(now())
+  notes           String?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
 
   @@index([categoryId])
   @@index([date])
