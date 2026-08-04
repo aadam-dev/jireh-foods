@@ -225,7 +225,7 @@ export default function MenuPage() {
         <div>
           <h1 className="text-2xl font-bold text-[#f4efeb] font-serif">Menu</h1>
           <p className="text-sm text-[#aba8a4]">
-            {categories.length} categories · {categories.reduce((s, c) => s + c.items.length, 0)} items
+            {categories.length} categories · {categories.reduce((s, c) => s + c.items.length, 0)} item{categories.reduce((s, c) => s + c.items.length, 0) === 1 ? '' : 's'}
           </p>
         </div>
         <Button size="sm" icon={<Plus size={14} />} onClick={() => { setCatName(''); setCatModal({ open: true }); }}>

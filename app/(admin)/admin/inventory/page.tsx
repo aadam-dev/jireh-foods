@@ -143,7 +143,7 @@ export default function InventoryPage() {
         <div>
           <h1 className="text-2xl font-bold text-[#f4efeb] font-serif">Inventory</h1>
           <p className="text-sm text-[#aba8a4] mt-0.5">
-            {items.length} items · {formatCurrency(totalStockValue)} stock value
+            {items.length} item{items.length === 1 ? '' : 's'} · {formatCurrency(totalStockValue)} stock value
             {lowStockCount > 0 && <> · <span className="text-yellow-400">{lowStockCount} low stock</span></>}
             {oversoldCount > 0 && <> · <span className="text-red-400">{oversoldCount} oversold</span></>}
           </p>

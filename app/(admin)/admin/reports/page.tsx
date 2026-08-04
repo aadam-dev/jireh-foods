@@ -63,7 +63,7 @@ const CustomTooltip = ({ active, payload, label }: any) => {
       <p className="text-[#aba8a4] mb-1">{label}</p>
       {payload.map((p: any, i: number) => (
         <p key={i} style={{ color: p.color ?? '#5ecf4f' }} className="font-semibold">
-          {p.name === 'orders' ? `${p.value} orders` : formatCurrency(p.value)}
+          {p.name === 'orders' ? `${p.value} order${p.value === 1 ? '' : 's'}` : formatCurrency(p.value)}
         </p>
       ))}
     </div>
@@ -265,7 +265,7 @@ export default function ReportsPage() {
             <>
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
                 <StatCard title="Total Revenue" value={formatCurrency(s?.totalRevenue ?? 0)}
-                  sub={`${s?.totalOrders} orders`}
+                  sub={`${s?.totalOrders} order${s?.totalOrders === 1 ? '' : 's'}`}
                   icon={<DollarSign size={16} className="text-[#5ecf4f]" />} />
                 <StatCard title="Gross Profit" value={formatCurrency(s?.grossProfit ?? 0)}
                   sub={`${(s?.grossMargin ?? 0).toFixed(1)}% margin`}
@@ -376,8 +376,8 @@ export default function ReportsPage() {
                 <StatCard title="Total Orders" value={String(s?.totalOrders ?? 0)}
                   sub={s?.totalOrders && s.totalOrders > 0 ? `avg ${formatCurrency((s.totalRevenue ?? 0) / s.totalOrders)}/order` : undefined}
                   icon={<ShoppingBag size={16} className="text-blue-400" />} iconBg="bg-blue-500/20" />
-                <StatCard title="Sessions" value={String(data?.sessions.length ?? 0)}
-                  sub={`${data?.sessions.filter(s => s.status === 'CLOSED').length} closed`}
+                <StatCard title="Sessions" value={String(data?.sessions?.length ?? 0)}
+                  sub={`${data?.sessions?.filter(s => s.status === 'CLOSED').length} closed`}
                   icon={<Clock size={16} className="text-purple-400" />} iconBg="bg-purple-500/20" />
                 <StatCard title="Avg Daily Revenue"
                   value={formatCurrency(
@@ -514,9 +514,9 @@ export default function ReportsPage() {
             <>
               {/* Summary stats */}
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                <StatCard title="Total Shifts" value={String(data?.sessions.length ?? 0)}
+                <StatCard title="Total Shifts" value={String(data?.sessions?.length ?? 0)}
                   icon={<Clock size={16} className="text-purple-400" />} iconBg="bg-purple-500/20" />
-                <StatCard title="Closed Shifts" value={String(data?.sessions.filter(s => s.status === 'CLOSED').length ?? 0)}
+                <StatCard title="Closed Shifts" value={String(data?.sessions?.filter(s => s.status === 'CLOSED').length ?? 0)}
                   icon={<CheckCircle2 size={16} className="text-[#5ecf4f]" />} />
                 <StatCard title="Total Discrepancies"
                   value={formatCurrency(

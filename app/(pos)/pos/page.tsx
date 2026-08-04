@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, useRef, type ReactNode } from 'react';
 import { useSession, signOut } from 'next-auth/react';
 import {
-  Search, ShoppingCart, Trash2, Plus, Minus, X, LogOut,
+  Search, Trash2, Plus, Minus, X, LogOut,
   LayoutDashboard, ChevronRight, Banknote, Smartphone, CreditCard,
   Building2, CheckCircle2, Printer, RotateCcw, Clock, AlertCircle,
   Lock, Unlock, Receipt, ChevronDown, Pencil, Zap,
@@ -67,6 +67,31 @@ const DELIVERY_TYPES = [
   { id: 'TAKEAWAY', label: 'Takeaway' },
   { id: 'DELIVERY', label: 'Delivery' },
 ];
+
+/* Which shift this device has already been told to carry on with.
+   ────────────────────────────────────────────────────────────────────────────
+   The continue/close prompt is a decision, and a decision already made should
+   not be asked again. Without this the gate lived only in React state, so every
+   return to the register — switching to the back office and back, a reload, a
+   phone locking and waking — replayed the dialogue mid-service.
+   A stale shift (opened on an earlier business day) always re-prompts, because
+   that one genuinely needs a fresh answer. */
+function acknowledgedShiftKey(userId?: string) {
+  return userId ? `jireh_pos_shift_ack_${userId}` : 'jireh_pos_shift_ack';
+}
+
+function readAcknowledgedShift(userId?: string): string | null {
+  try { return localStorage.getItem(acknowledgedShiftKey(userId)); } catch { return null; }
+}
+
+function writeAcknowledgedShift(sessionId: string | null, userId?: string) {
+  try {
+    if (sessionId) localStorage.setItem(acknowledgedShiftKey(userId), sessionId);
+    else localStorage.removeItem(acknowledgedShiftKey(userId));
+  } catch {
+    // Private browsing or storage disabled — the prompt simply reappears.
+  }
+}
 
 function cartStorageKey(userId?: string) {
   return userId ? `jireh_pos_cart_${userId}` : 'jireh_pos_cart_pending';
@@ -672,9 +697,11 @@ export default function POSPage() {
       if (data.session) {
         setPendingSession(data.session);
         const stale = data.isStale ?? classifyRegisterSession(data.session.openedAt) === 'stale';
-        if (opts?.activate) {
+        const alreadyAcknowledged = readAcknowledgedShift(userId) === data.session.id;
+        if (opts?.activate || (alreadyAcknowledged && !stale)) {
           setPosSession(data.session);
           setRegisterGate('active');
+          writeAcknowledgedShift(data.session.id, userId);
         } else {
           setPosSession(null);
           setRegisterGate(stale ? 'stale' : 'continue');
@@ -683,6 +710,7 @@ export default function POSPage() {
         setPendingSession(null);
         setPosSession(null);
         setRegisterGate('open_new');
+        writeAcknowledgedShift(null, userId);
       }
     }
     setSessionChecked(true);
@@ -693,6 +721,7 @@ export default function POSPage() {
     setPosSession(pendingSession);
     setRegisterGate('active');
     setView('register');
+    writeAcknowledgedShift(pendingSession.id, userId);
   };
 
   const fetchOrders = async () => {
@@ -956,6 +985,7 @@ export default function POSPage() {
         setPendingSession(null);
         setRegisterGate('open_new');
         setSessionStats({ revenue: 0, cashRevenue: 0, momoRevenue: 0, boltRevenue: 0 });
+        writeAcknowledgedShift(null, userId);
         setCashCounts({});
         setClosingCashStr('0');
         setClosingMomoStr('0');
@@ -1175,7 +1205,7 @@ export default function POSPage() {
       <div className="h-screen bg-[#111311] flex items-center justify-center p-4 overflow-y-auto">
         <div className="max-w-sm w-full bg-[#191c19] border border-[#2b2f2b] rounded-3xl p-6 my-4">
           <h2 className="text-xl font-bold text-[#f4efeb] mb-1 text-center">Shift Closed</h2>
-          <p className="text-center text-sm text-[#aba8a4] mb-4">{closingSummary.orderCount} orders · {formatCurrency(closingSummary.totalRevenue)} total</p>
+          <p className="text-center text-sm text-[#aba8a4] mb-4">{closingSummary.orderCount} order{closingSummary.orderCount === 1 ? '' : 's'} · {formatCurrency(closingSummary.totalRevenue)} total</p>
 
           {/* Per-method reconciliation */}
           <div className="space-y-2 mb-4">
@@ -1967,7 +1997,7 @@ export default function POSPage() {
         <div className={`${mobileTab === 'cart' ? 'flex' : 'hidden'} md:flex flex-col w-full md:w-72 xl:w-80 shrink-0 bg-[#0a0b0a]`}>
           <div className="shrink-0 flex items-center justify-between px-4 py-3 border-b border-[#2b2f2b]">
             <div className="flex items-center gap-2">
-              <ShoppingCart size={15} className="text-[#5ecf4f]"/>
+              <Receipt size={15} className="text-[#5ecf4f]"/>
               <span className="text-sm font-semibold text-[#f4efeb]">Order</span>
               {cart.length > 0 && (
                 <span className="bg-[#349f2d] text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">
@@ -1985,7 +2015,7 @@ export default function POSPage() {
           <div className="flex-1 overflow-y-auto px-2 py-2 space-y-1.5">
             {cart.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-full py-8 text-center">
-                <ShoppingCart size={22} className="text-[#2b2f2b] mb-2"/>
+                <Receipt size={22} className="text-[#2b2f2b] mb-2"/>
                 <p className="text-sm text-[#aba8a4]">Tap items to add</p>
               </div>
             ) : cart.map(item => (
@@ -2031,7 +2061,7 @@ export default function POSPage() {
             ))}
           </div>
 
-          {/* Checkout footer */}
+          {/* Order footer — totals, shift status and the charge actions */}
           <div className="shrink-0 border-t border-[#2b2f2b] p-3 space-y-2.5">
             {/* Shift status with quick-open for cashiers */}
             {posSession ? (
@@ -2113,14 +2143,14 @@ export default function POSPage() {
           onClick={() => setMobileTab('cart')}
           className={`flex-1 flex flex-col items-center py-3 gap-1 transition-colors ${mobileTab === 'cart' ? 'text-[#5ecf4f]' : 'text-[#aba8a4]'}`}>
           <div className="relative">
-            <ShoppingCart size={20}/>
+            <Receipt size={20}/>
             {cart.reduce((s, c) => s + c.quantity, 0) > 0 && (
               <span className="absolute -top-1.5 -right-2.5 bg-[#349f2d] text-white text-[9px] font-bold min-w-[16px] h-4 flex items-center justify-center rounded-full px-1">
                 {cart.reduce((s, c) => s + c.quantity, 0)}
               </span>
             )}
           </div>
-          <span className="text-[10px] font-medium">Cart</span>
+          <span className="text-[10px] font-medium">Order</span>
         </button>
         <button
           onClick={() => { setView('orders'); fetchOrders(); }}

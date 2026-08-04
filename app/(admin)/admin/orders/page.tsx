@@ -232,7 +232,7 @@ export default function OrdersPage() {
           <option value="ALL">All shifts</option>
           {sessions.map(s => (
             <option key={s.id} value={s.id}>
-              {formatSessionLabel(s)} ({s._count?.orders ?? 0} orders)
+              {formatSessionLabel(s)} ({s._count?.orders ?? 0} order{(s._count?.orders ?? 0) === 1 ? '' : 's'})
             </option>
           ))}
         </select>

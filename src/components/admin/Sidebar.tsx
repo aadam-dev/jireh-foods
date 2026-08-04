@@ -64,7 +64,10 @@ const NAV_SECTIONS: NavSection[] = [
 ];
 
 interface SidebarProps {
-  user: { name: string; email: string; role: UserRole };
+  /* Every field is optional on purpose. NextAuth types name and email as
+     nullable, and the previous cast to a required shape meant one missing
+     value crashed the whole back office rather than showing a placeholder. */
+  user: { name?: string | null; email?: string | null; role?: UserRole };
   lowStockCount?: number;
   onClose?: () => void;
   mobile?: boolean;
@@ -76,8 +79,12 @@ export function Sidebar({ user, lowStockCount = 0, onClose, mobile = false }: Si
   const isActive = (href: string) =>
     href === '/admin' ? pathname === '/admin' : pathname.startsWith(href);
 
-  const roleLabel = user.email === 'it@jireh.com' ? 'IT Admin' : (ROLE_LABELS[user.role] ?? user.role);
-  const initials = user.name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
+  const displayName = user.name?.trim() || user.email?.split('@')[0] || 'Signed in';
+  const roleLabel = user.email === 'it@jireh.com'
+    ? 'IT Admin'
+    : (user.role ? ROLE_LABELS[user.role] ?? user.role : 'Staff');
+  const initials =
+    displayName.split(' ').map(n => n[0]).filter(Boolean).join('').toUpperCase().slice(0, 2) || '?';
 
   return (
     <aside className={[
@@ -122,7 +129,9 @@ export function Sidebar({ user, lowStockCount = 0, onClose, mobile = false }: Si
       {/* Nav */}
       <nav className="flex-1 overflow-y-auto px-3 py-2 space-y-5">
         {NAV_SECTIONS.map(section => {
-          const visibleItems = section.items.filter(item => item.roles.includes(user.role));
+          const visibleItems = user.role
+            ? section.items.filter(item => item.roles.includes(user.role!))
+            : [];
           if (visibleItems.length === 0) return null;
           return (
             <div key={section.label}>
@@ -176,7 +185,7 @@ export function Sidebar({ user, lowStockCount = 0, onClose, mobile = false }: Si
             <span className="text-xs font-bold text-[var(--accent-bright)]">{initials}</span>
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-semibold text-[var(--foreground)] truncate leading-tight">{user.name}</p>
+            <p className="text-sm font-semibold text-[var(--foreground)] truncate leading-tight">{displayName}</p>
             <p className="text-[10px] text-[var(--muted)] truncate leading-tight mt-0.5">{roleLabel}</p>
           </div>
         </div>

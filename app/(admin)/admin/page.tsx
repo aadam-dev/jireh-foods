@@ -10,7 +10,17 @@ import {
   StatCard, SectionCard, EmptyState, PageHeader, StatusChip, DataTable,
   formatGHS, Delta, type Column,
 } from '@/src/components/admin/ui';
+import dynamic from 'next/dynamic';
 import { apiGet, errorMessage } from '@/src/lib/api-client';
+
+/* recharts is ~110KB. Load it after the numbers so the figures an owner came
+   for are readable immediately, and reserve the height to avoid a layout jump. */
+const RevenueTrend = dynamic(() => import('@/src/components/admin/RevenueTrend'), {
+  ssr: false,
+  loading: () => (
+    <div className="h-[220px] animate-pulse rounded-xl bg-[var(--fl-surface-2)]" />
+  ),
+});
 
 /* ─── Types ──────────────────────────────────────────────────────────────── */
 
@@ -35,6 +45,7 @@ interface DashboardData {
     moneyLeft: number; recipeCoverage: number; startDate: string;
   };
   month: { revenue: number; orders: number };
+  trendChart: { date: string; revenue: number }[];
   channelMix: Record<string, { orders: number; revenue: number }>;
   paymentMix: Record<string, number>;
   recentOrders: any[];
@@ -127,7 +138,7 @@ export default function TodayPage() {
 
   /* Attention feed — one ember section, assembled from every open loop. */
   const attention: AttentionItem[] = [];
-  for (const s of data?.attention.staleShifts ?? []) {
+  for (const s of data?.attention?.staleShifts ?? []) {
     attention.push({
       id: `shift-${s.id}`,
       label: 'Shift never closed',
@@ -136,7 +147,7 @@ export default function TodayPage() {
       actionLabel: 'Close shift',
     });
   }
-  for (const o of data?.attention.staleOrders ?? []) {
+  for (const o of data?.attention?.staleOrders ?? []) {
     attention.push({
       id: `order-${o.id}`,
       label: `Order ${o.orderNumber} waiting ${o.waitingMinutes} min`,
@@ -156,7 +167,7 @@ export default function TodayPage() {
       actionLabel: 'Build market list',
     });
   }
-  for (const i of data?.attention.unavailableItems ?? []) {
+  for (const i of data?.attention?.unavailableItems ?? []) {
     attention.push({
       id: `86-${i.id}`,
       label: `${i.name} is 86'd`,
@@ -165,7 +176,7 @@ export default function TodayPage() {
       actionLabel: 'Menu manager',
     });
   }
-  for (const p of data?.attention.duePayroll ?? []) {
+  for (const p of data?.attention?.duePayroll ?? []) {
     attention.push({
       id: `pay-${p.id}`,
       label: `Payroll due — ${p.name}`,
@@ -245,11 +256,48 @@ export default function TodayPage() {
               {formatGHS(Number(data.activeSession.openingFloat ?? 0))}
             </span>
           </span>
-          {(data.attention.staleOrders.length ?? 0) > 0 && (
-            <StatusChip label={`${data.attention.staleOrders.length} waiting`} tone="attention" icon={Clock} />
+          {(data.attention?.staleOrders?.length ?? 0) > 0 && (
+            <StatusChip label={`${data.attention?.staleOrders?.length} waiting`} tone="attention" icon={Clock} />
           )}
         </div>
       )}
+
+      {/* ── Sales at a glance ───────────────────────────────────────────── */}
+      <SectionCard
+        title="Sales at a glance"
+        explainer="Money collected, before costs. Today runs from midnight; the week starts Monday."
+        deepLink="/admin/reports"
+        deepLinkLabel="Reports"
+      >
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <StatCard
+            label="Today"
+            value={t?.revenue ?? 0}
+            money
+            delta={t?.revenueTrend ?? null}
+            deltaLabel="vs same day last week"
+            subline={`${t?.orders ?? 0} order${(t?.orders ?? 0) === 1 ? '' : 's'}`}
+          />
+          <StatCard
+            label="Yesterday"
+            value={data?.yesterday?.revenue ?? 0}
+            money
+            subline={`${data?.yesterday?.orders ?? 0} order${(data?.yesterday?.orders ?? 0) === 1 ? '' : 's'}`}
+          />
+          <StatCard label="This week" value={w?.revenue ?? 0} money subline="Monday to today" />
+          <StatCard
+            label="This month"
+            value={data?.month?.revenue ?? 0}
+            money
+            subline={`${data?.month?.orders ?? 0} order${(data?.month?.orders ?? 0) === 1 ? '' : 's'}`}
+          />
+        </div>
+
+        <div className="mt-5">
+          <p className="fl-label mb-2.5">Last 30 days</p>
+          <RevenueTrend data={data?.trendChart ?? []} />
+        </div>
+      </SectionCard>
 
       {/* ── How is today going? ─────────────────────────────────────────── */}
       <SectionCard
@@ -305,9 +353,9 @@ export default function TodayPage() {
               icon={Sunrise}
               title="No sales yet — service starts when you open the register."
               body={
-                (data?.yesterday.orders ?? 0) > 0
-                  ? `Yesterday you closed on ${formatGHS(data!.yesterday.revenue)} from ${data!.yesterday.orders} orders. This week so far: ${formatGHS(data?.week.revenue ?? 0)}.`
-                  : `This week so far: ${formatGHS(data?.week.revenue ?? 0)}.`
+                (data?.yesterday?.orders ?? 0) > 0
+                  ? `Yesterday you closed on ${formatGHS(data!.yesterday!.revenue)} from ${data!.yesterday!.orders} order${data!.yesterday!.orders === 1 ? '' : 's'}. This week so far: ${formatGHS(data?.week?.revenue ?? 0)}.`
+                  : `This week so far: ${formatGHS(data?.week?.revenue ?? 0)}.`
               }
               actionLabel="Open POS Register"
               actionHref="/pos"
