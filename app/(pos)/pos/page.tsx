@@ -548,6 +548,8 @@ export default function POSPage() {
 
   const [categories, setCategories] = useState<MenuCategory[]>([]);
   const [activeCat, setActiveCat] = useState('');
+  /** Showing the 86'd dishes instead of a category, to put them back on. */
+  const [showOffMenu, setShowOffMenu] = useState(false);
   const [search, setSearch] = useState('');
   const [cart, setCart] = useState<CartItem[]>([]);
   const [receiptSettings, setReceiptSettings] = useState({
@@ -1052,9 +1054,22 @@ export default function POSPage() {
     } finally { setSessionLoading(false); }
   };
 
+  /* An 86'd dish is off the register, not greyed on it. Leaving sold-out tiles
+     in the grid during a rush means the cashier reads and rejects them on
+     every sale. They collect behind the "Off menu" chip instead, which is
+     also where they are put back on — so nothing is lost, it is just out of
+     the way of selling. */
+  const sellable = (items: MenuItem[]) => items.filter(i => i.isAvailable !== false);
+  const offMenuItems = categories.flatMap(c => c.items).filter(i => i.isAvailable === false);
+  /* Falls back on its own once the last dish is restored, so the chip can
+     never leave the cashier staring at an empty grid. */
+  const viewingOffMenu = showOffMenu && offMenuItems.length > 0;
+
   const filteredItems = search.trim()
-    ? categories.flatMap(c => c.items).filter(i => i.name.toLowerCase().includes(search.toLowerCase()))
-    : categories.find(c => c.id === activeCat)?.items ?? [];
+    ? sellable(categories.flatMap(c => c.items)).filter(i => i.name.toLowerCase().includes(search.toLowerCase()))
+    : viewingOffMenu
+      ? offMenuItems
+      : sellable(categories.find(c => c.id === activeCat)?.items ?? []);
 
   /* ─── 86 board ────────────────────────────────────────────────────────
      Long-press a tile to take a dish off the menu the moment the kitchen runs
@@ -1950,11 +1965,19 @@ export default function POSPage() {
             {!search && (
               <div className="flex gap-1.5 overflow-x-auto pb-2 scrollbar-none">
                 {categories.map(cat => (
-                  <button key={cat.id} onClick={() => setActiveCat(cat.id)}
-                    className={`shrink-0 px-4 py-2 rounded-xl text-sm font-semibold transition border ${cat.id === activeCat ? 'bg-[#349f2d]/20 text-[#5ecf4f] border-[#349f2d]/40' : 'text-[#aba8a4] border-[#2b2f2b] hover:border-[#404540] hover:text-[#f4efeb]'}`}>
-                    {cat.name} <span className="opacity-50">({cat.items.length})</span>
+                  <button key={cat.id} onClick={() => { setActiveCat(cat.id); setShowOffMenu(false); }}
+                    className={`shrink-0 px-4 py-2 rounded-xl text-sm font-semibold transition border ${cat.id === activeCat && !viewingOffMenu ? 'bg-[#349f2d]/20 text-[#5ecf4f] border-[#349f2d]/40' : 'text-[#aba8a4] border-[#2b2f2b] hover:border-[#404540] hover:text-[#f4efeb]'}`}>
+                    {cat.name} <span className="opacity-50">({sellable(cat.items).length})</span>
                   </button>
                 ))}
+                {/* Only appears when something is actually off, so the row
+                    stays clean on a normal day. */}
+                {offMenuItems.length > 0 && (
+                  <button onClick={() => setShowOffMenu(v => !v)}
+                    className={`shrink-0 px-4 py-2 rounded-xl text-sm font-semibold transition border ${viewingOffMenu ? 'bg-yellow-400/15 text-yellow-300 border-yellow-400/40' : 'text-[#aba8a4] border-[#2b2f2b] hover:border-yellow-400/40 hover:text-yellow-300'}`}>
+                    Off menu <span className="opacity-50">({offMenuItems.length})</span>
+                  </button>
+                )}
               </div>
             )}
           </div>
@@ -2042,7 +2065,9 @@ export default function POSPage() {
                 );
               })}
               {filteredItems.length === 0 && (
-                <div className="col-span-full text-center py-10 text-sm text-[#aba8a4]">No items found</div>
+                <div className="col-span-full text-center py-10 text-sm text-[#aba8a4]">
+                  {search.trim() ? 'No items found' : 'Nothing on in this category'}
+                </div>
               )}
             </div>
           </div>
