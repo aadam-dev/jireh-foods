@@ -12,7 +12,7 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { formatCurrency, formatTime } from '@/src/lib/utils';
 import { enqueueOrder, getPendingOrders, syncPendingOrders } from '@/src/lib/offlineQueue';
-import { classifyRegisterSession } from '@/src/lib/session-utils';
+import { businessDateKey, classifyRegisterSession } from '@/src/lib/session-utils';
 import { computeOrderTotals, changeDue } from '@/src/lib/money';
 import { DEVELOPER_CREDIT, RECEIPT_CREDIT_LINES } from '@/src/lib/developer-credit';
 
@@ -70,6 +70,39 @@ const DELIVERY_TYPES = [
 
 function cartStorageKey(userId?: string) {
   return userId ? `jireh_pos_cart_${userId}` : 'jireh_pos_cart_pending';
+}
+
+/* ─── Shift acknowledgement ──────────────────────────────────────────
+   Which shift this cashier has already said "yes, I'm on it" to. Once
+   acknowledged, refreshing the tab or relaunching the PWA mid-shift drops
+   straight back into selling instead of re-asking — a register that
+   re-interrogates its cashier between sales is the classic POS annoyance.
+
+   Scoped per user so a handover still shows the new cashier whose drawer
+   they are on, and stamped with the business day so a till left open
+   overnight surfaces the stale-shift warning once the next morning. */
+function shiftAckKey(userId?: string) {
+  return userId ? `jireh_pos_shift_ack_${userId}` : 'jireh_pos_shift_ack_pending';
+}
+
+function readShiftAck(userId?: string): string | null {
+  try {
+    const raw = localStorage.getItem(shiftAckKey(userId));
+    if (!raw) return null;
+    const { id, day } = JSON.parse(raw) as { id?: string; day?: string };
+    if (!id || day !== businessDateKey()) return null;
+    return id;
+  } catch { return null; }
+}
+
+function writeShiftAck(sessionId: string, userId?: string) {
+  try {
+    localStorage.setItem(shiftAckKey(userId), JSON.stringify({ id: sessionId, day: businessDateKey() }));
+  } catch {}
+}
+
+function clearShiftAck(userId?: string) {
+  try { localStorage.removeItem(shiftAckKey(userId)); } catch {}
 }
 
 /* ─── Tile artwork ───────────────────────────────────────────────────
@@ -337,7 +370,6 @@ const DELIVERY_LABELS: Record<string, string> = {
 
 function Receipt80mm({
   order,
-  session: posSession,
   businessName = 'JIREH NATURAL FOODS',
   businessPhone = '055 113 3481',
   businessAddress = 'Adenta Housing Down, Accra',
@@ -346,7 +378,6 @@ function Receipt80mm({
   preview = false,
 }: {
   order: any;
-  session: PosSession | null;
   businessName?: string;
   businessPhone?: string;
   businessAddress?: string;
@@ -532,6 +563,9 @@ export default function POSPage() {
 
   // Session
   const [posSession, setPosSession] = useState<PosSession | null>(null);
+  /* fetchSession is called from callbacks captured on earlier renders, so it
+     reads the live shift through a ref rather than a stale closure. */
+  const posSessionRef = useRef<PosSession | null>(null);
   const [pendingSession, setPendingSession] = useState<PosSession | null>(null);
   const [registerGate, setRegisterGate] = useState<RegisterGate>('checking');
   const [sessionChecked, setSessionChecked] = useState(false);
@@ -659,6 +693,13 @@ export default function POSPage() {
     }
   };
 
+  /* Refresh shift + revenue figures from the server.
+     This runs after every sale, every ticket settlement and every offline
+     sync, so it must never take a live register away from the cashier. Only
+     three things send someone back through the gate: they have not
+     acknowledged a shift yet, the shift changed underneath them, or the till
+     was closed on another device. A plain figures refresh is never one of
+     them. */
   const fetchSession = async (opts?: { activate?: boolean }) => {
     const res = await fetch('/api/pos/sessions');
     if (res.ok) {
@@ -669,10 +710,19 @@ export default function POSPage() {
         momoRevenue: data.momoRevenue ?? 0,
         boltRevenue: data.boltRevenue ?? 0,
       });
+      // IT admin runs in demo mode and never holds a shift — refreshing the
+      // figures must not pull the register out from under it either.
+      if (isItAdmin) { setSessionChecked(true); return; }
       if (data.session) {
         setPendingSession(data.session);
         const stale = data.isStale ?? classifyRegisterSession(data.session.openedAt) === 'stale';
-        if (opts?.activate) {
+        // In-memory check covers this page load; the stored ack survives a
+        // reload or PWA relaunch mid-shift.
+        const acknowledged =
+          posSessionRef.current?.id === data.session.id ||
+          readShiftAck(userId) === data.session.id;
+        if (opts?.activate || acknowledged) {
+          writeShiftAck(data.session.id, userId);
           setPosSession(data.session);
           setRegisterGate('active');
         } else {
@@ -680,6 +730,9 @@ export default function POSPage() {
           setRegisterGate(stale ? 'stale' : 'continue');
         }
       } else {
+        // Till closed — here or on another device. Dropping the register is
+        // correct; clear the ack so the next shift is acknowledged afresh.
+        clearShiftAck(userId);
         setPendingSession(null);
         setPosSession(null);
         setRegisterGate('open_new');
@@ -690,6 +743,7 @@ export default function POSPage() {
 
   const activateRegister = () => {
     if (!pendingSession) return;
+    writeShiftAck(pendingSession.id, userId);
     setPosSession(pendingSession);
     setRegisterGate('active');
     setView('register');
@@ -735,6 +789,8 @@ export default function POSPage() {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authStatus, isItAdmin]);
+
+  useEffect(() => { posSessionRef.current = posSession; }, [posSession]);
 
   useEffect(() => {
     if (sessionChecked && authSession?.user && registerGate === 'active') { fetchOrders(); fetchOpenTickets(); }
@@ -952,6 +1008,7 @@ export default function POSPage() {
       if (res.ok) {
         const data = await res.json();
         setClosingSummary(data.summary);
+        clearShiftAck(userId);
         setPosSession(null);
         setPendingSession(null);
         setRegisterGate('open_new');
@@ -1128,7 +1185,6 @@ export default function POSPage() {
               <Receipt80mm
                 preview
                 order={lastOrder}
-                session={posSession}
                 businessName={receiptSettings.businessName}
                 businessPhone={receiptSettings.businessPhone}
                 businessAddress={receiptSettings.businessAddress}
@@ -1146,7 +1202,7 @@ export default function POSPage() {
             )}
             <button onClick={() => setLastOrder(null)}
               className="flex-1 bg-[#349f2d] hover:bg-[#287e22] text-white rounded-2xl py-3 font-semibold text-sm transition-colors">
-              New Order
+              New Sale
             </button>
           </div>
         </div>
@@ -1154,7 +1210,6 @@ export default function POSPage() {
         {!isOfflineOrder && (
           <Receipt80mm
             order={lastOrder}
-            session={posSession}
             businessName={receiptSettings.businessName}
             businessPhone={receiptSettings.businessPhone}
             businessAddress={receiptSettings.businessAddress}
