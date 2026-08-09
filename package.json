@@ -12,6 +12,7 @@
     "db:studio": "prisma studio",
     "db:seed": "tsx prisma/seed.ts",
     "db:seed:api": "node prisma/seed-via-api.mjs",
+    "db:add-quick-sale-items": "tsx prisma/add-quick-sale-items.ts",
     "test:money": "tsx --test src/lib/money.test.ts"
   },
   "dependencies": {

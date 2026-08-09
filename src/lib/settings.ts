@@ -62,3 +62,21 @@ export async function getGraTin(): Promise<string> {
 export async function isInventoryTrackingEnabled(): Promise<boolean> {
   return (await getSetting('inventory_tracking', 'false')) === 'true';
 }
+
+/**
+ * Whether tapping a dish on the register opens the options sheet (protein,
+ * spice level, extras) instead of dropping it straight into the ticket.
+ *
+ * Default OFF. The shop sells a short, fixed menu at speed and rarely takes
+ * special requests, so a sheet between every tap and the ticket is friction,
+ * not service. With it off, a dish with a *required* group is still added
+ * with that group's default choice, so the kitchen never receives a ticket
+ * missing an answer it needs — and a one-off request is handled by the note
+ * on the cart line.
+ *
+ * The OWNER turns this on in Settings once special requests are common
+ * enough to be worth a tap on every sale.
+ */
+export async function arePosModifiersEnabled(): Promise<boolean> {
+  return (await getSetting('pos_modifiers_enabled', 'false')) === 'true';
+}

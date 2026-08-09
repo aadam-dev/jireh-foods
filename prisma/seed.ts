@@ -58,6 +58,17 @@ async function main() {
     { id: 'food-asian-md', name: 'Asian Fried Rice — Medium', price: 55.0, costPrice: 22.0, description: 'With grilled or fried chicken.', tags: ['rice', 'asian'] },
     { id: 'food-asian-lg', name: 'Asian Fried Rice — Large', price: 65.0, costPrice: 28.0, description: 'With grilled or fried chicken.', tags: ['rice', 'asian'] },
     { id: 'food-fries', name: 'Fries with Chicken', price: 60.0, costPrice: 24.0, description: 'Crispy potato fries with fried chicken.', tags: ['chicken', 'fried'] },
+    /* Plain plates + chicken sold separately, so the common combinations are
+       two taps on the register instead of a dialog. Priced so that
+       "rice only" + "chicken only" lands on the same total as the plate that
+       already includes chicken. */
+    { id: 'food-chicken-only', name: 'Chicken Only', price: 10.0, costPrice: 4.0, description: 'One piece of chicken — grilled or fried.', tags: ['chicken', 'extra'] },
+    { id: 'food-jollof-only-sm', name: 'Jollof Rice Only — Small', price: 30.0, costPrice: 12.0, description: 'Rice only, no chicken.', tags: ['jollof', 'rice'] },
+    { id: 'food-jollof-only-md', name: 'Jollof Rice Only — Medium', price: 45.0, costPrice: 18.0, description: 'Rice only, no chicken.', tags: ['jollof', 'rice'] },
+    { id: 'food-jollof-only-lg', name: 'Jollof Rice Only — Large', price: 55.0, costPrice: 24.0, description: 'Rice only, no chicken.', tags: ['jollof', 'rice'] },
+    { id: 'food-asian-only-sm', name: 'Asian Fried Rice Only — Small', price: 30.0, costPrice: 12.0, description: 'Rice only, no chicken.', tags: ['rice', 'asian'] },
+    { id: 'food-asian-only-md', name: 'Asian Fried Rice Only — Medium', price: 45.0, costPrice: 18.0, description: 'Rice only, no chicken.', tags: ['rice', 'asian'] },
+    { id: 'food-asian-only-lg', name: 'Asian Fried Rice Only — Large', price: 55.0, costPrice: 24.0, description: 'Rice only, no chicken.', tags: ['rice', 'asian'] },
     { id: 'food-fufu-md', name: 'Fufu — Medium', price: 50.0, costPrice: 20.0, description: 'With meat / goat light soup.', tags: ['fufu', 'traditional'] },
     { id: 'food-fufu-lg', name: 'Fufu — Large', price: 60.0, costPrice: 25.0, description: 'With meat / goat light soup.', isPopular: true, tags: ['fufu', 'traditional'] },
     { id: 'food-banku-md', name: 'Banku — Medium', price: 40.0, costPrice: 15.0, description: 'With okro stew or groundnut soup.', tags: ['banku', 'traditional'] },

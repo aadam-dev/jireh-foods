@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import {
   Save, Building2, Phone, MapPin, DollarSign, Receipt,
   Package, AlertCircle, CheckCircle2, Tag, Loader2, Info, FlaskConical,
+  SlidersHorizontal,
 } from 'lucide-react';
 import { Card } from '@/src/components/ui/Card';
 import { Input } from '@/src/components/ui/Input';
@@ -22,6 +23,7 @@ interface SettingsMap {
   receipt_footer: string;
   low_stock_alert_threshold: string;
   inventory_tracking: string; // 'true' | 'false'
+  pos_modifiers_enabled: string; // 'true' | 'false'
 }
 
 const DEFAULTS: SettingsMap = {
@@ -35,9 +37,10 @@ const DEFAULTS: SettingsMap = {
   receipt_footer: 'Thank you for dining with us!',
   low_stock_alert_threshold: '5',
   inventory_tracking: 'false',
+  pos_modifiers_enabled: 'false',
 };
 
-type SectionKey = 'business' | 'tax' | 'receipt' | 'alerts' | 'inventory';
+type SectionKey = 'business' | 'tax' | 'receipt' | 'alerts' | 'inventory' | 'register';
 
 export default function SettingsPage() {
   const [values, setValues]     = useState<SettingsMap>(DEFAULTS);
@@ -113,6 +116,7 @@ export default function SettingsPage() {
   const exampleOrderTotal = 80;
   const exampleTax = exampleOrderTotal * taxRate;
   const trackingOn = values.inventory_tracking === 'true';
+  const modifiersOn = values.pos_modifiers_enabled === 'true';
 
   if (loading) {
     return (
@@ -343,6 +347,50 @@ export default function SettingsPage() {
                 {values.receipt_footer.split('\n').map((line, i) => <p key={i}>{line}</p>)}
               </div>
             </div>
+          </div>
+        </div>
+      </Card>
+
+      {/* ── Register behaviour ── */}
+      <Card padding="md">
+        <div className="flex items-center justify-between mb-5">
+          <div className="flex items-center gap-2">
+            <SlidersHorizontal size={15} className="text-[#5ecf4f]" />
+            <h2 className="text-sm font-semibold text-[#f4efeb]">Register</h2>
+          </div>
+          <SectionSaveBtn section="register" keys={['pos_modifiers_enabled']} />
+        </div>
+        <div className="space-y-4">
+          <div className="flex items-center justify-between gap-4 rounded-xl border border-[#2b2f2b] bg-[#111311] px-4 py-3.5">
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-[#f4efeb]">Ask for options when adding a dish</p>
+              <p className="text-[11px] text-[#aba8a4] mt-0.5">
+                When on, tapping a dish that has choices (protein, spice level, extras) opens the options sheet before it joins the ticket.
+              </p>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={modifiersOn}
+              aria-label="Toggle the options sheet on the register"
+              onClick={() => setToggle('pos_modifiers_enabled', !modifiersOn)}
+              className={`relative shrink-0 w-12 h-7 rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#349f2d]/60 ${modifiersOn ? 'bg-[#349f2d]' : 'bg-[#2b2f2b]'}`}
+            >
+              <span className={`absolute top-1 left-1 w-5 h-5 rounded-full bg-white shadow transition-transform duration-200 ${modifiersOn ? 'translate-x-5' : ''}`} />
+            </button>
+          </div>
+
+          <div className={`flex items-start gap-2.5 rounded-xl px-4 py-3 border ${modifiersOn ? 'bg-[#349f2d]/5 border-[#349f2d]/20' : 'bg-[#111311] border-[#2b2f2b]'}`}>
+            <Info size={13} className={`shrink-0 mt-0.5 ${modifiersOn ? 'text-[#5ecf4f]' : 'text-[#aba8a4]'}`} />
+            {modifiersOn ? (
+              <p className="text-[11px] text-[#5ecf4f]/90 leading-relaxed">
+                <strong>Options sheet is on.</strong> Every dish with choices costs the cashier one extra tap. Worth it once special requests are common — turn it back off during a rush.
+              </p>
+            ) : (
+              <p className="text-[11px] text-[#aba8a4] leading-relaxed">
+                <strong className="text-[#f4efeb]">Quick sale is on.</strong> A tap puts the dish straight on the ticket — this is the default. Dishes with a required choice still carry their default answer to the kitchen, and a one-off request goes on the line note (pencil icon in the cart). Cashiers pick up the change within a minute; no need to sign out.
+              </p>
+            )}
           </div>
         </div>
       </Card>

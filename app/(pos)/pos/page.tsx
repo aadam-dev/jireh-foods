@@ -145,6 +145,27 @@ function Numpad({ value, onChange }: { value: string; onChange: (v: string) => v
   );
 }
 
+/* The choices a dish arrives with before the cashier touches anything: the
+   first option of every required single-choice group. The options sheet seeds
+   itself from this, and quick-sale mode (sheet off in Settings) applies it
+   silently — so a dish whose protein choice is *required* still reaches the
+   kitchen with an answer instead of a blank. One definition, both paths. */
+function defaultOptionByGroup(item: MenuItem): Record<string, ModifierOption> {
+  const out: Record<string, ModifierOption> = {};
+  for (const g of item.modifierGroups ?? []) {
+    if (g.isRequired && g.selection === 'SINGLE' && g.options.length > 0) out[g.id] = g.options[0];
+  }
+  return out;
+}
+
+function defaultModifiers(item: MenuItem): ChosenModifier[] {
+  const defaults = defaultOptionByGroup(item);
+  return (item.modifierGroups ?? []).flatMap(g => {
+    const o = defaults[g.id];
+    return o ? [{ optionId: o.id, groupName: g.name, name: o.name, priceDelta: o.priceDelta }] : [];
+  });
+}
+
 /* ─── Modifier sheet ─────────────────────────────────────────────────
    Bottom sheet on tile tap for dishes that have choices. Big targets, one
    screenful, and a required group blocks Add until it's answered — during a
@@ -160,10 +181,12 @@ function ModifierSheet({
 }) {
   const groups = item.modifierGroups ?? [];
   const [selected, setSelected] = useState<Record<string, string[]>>(() => {
-    // Pre-select the first option of each required single-choice group.
+    // Pre-select the first option of each required single-choice group — the
+    // same seed quick-sale mode applies, kept in one place so the two paths
+    // cannot drift apart.
     const init: Record<string, string[]> = {};
-    for (const g of groups) {
-      if (g.isRequired && g.selection === 'SINGLE' && g.options[0]) init[g.id] = [g.options[0].id];
+    for (const [groupId, option] of Object.entries(defaultOptionByGroup(item))) {
+      init[groupId] = [option.id];
     }
     return init;
   });
@@ -534,6 +557,10 @@ export default function POSPage() {
     receiptHeader: 'Fresh & Healthy — Always',
     receiptFooter: 'Thank you for your patronage!',
   });
+  /* Quick-sale mode is the default: a tap puts the dish straight on the
+     ticket. Owner flips this on in Settings when special requests become
+     common enough to justify a sheet on every tap. */
+  const [modifiersEnabled, setModifiersEnabled] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState('CASH');
   const [deliveryType, setDeliveryType] = useState('TAKEAWAY');
   const [customerName, setCustomerName] = useState('');
@@ -772,6 +799,7 @@ export default function POSPage() {
         });
         // Keep the register's arithmetic identical to the server's.
         setTaxRate(Number(data.tax_rate ?? 0) || 0);
+        setModifiersEnabled(data.pos_modifiers_enabled === true);
       })
       .catch(() => {});
   }, [authStatus]);
@@ -1944,11 +1972,13 @@ export default function POSPage() {
                       // Suppress the click that follows a long-press.
                       if (longPressFired.current) { longPressFired.current = false; return; }
                       if (off) { setEightySixTarget(item); return; }
-                      if (item.modifierGroups && item.modifierGroups.length > 0) {
+                      if (modifiersEnabled && item.modifierGroups && item.modifierGroups.length > 0) {
                         setModifierTarget(item);
                         return;
                       }
-                      addToCart(item);
+                      // Quick-sale mode: straight onto the ticket, carrying
+                      // the defaults any required group would have supplied.
+                      addToCart(item, defaultModifiers(item));
                     }}
                     onPointerDown={() => startLongPress(item)}
                     onPointerUp={cancelLongPress}
