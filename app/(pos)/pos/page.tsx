@@ -17,6 +17,8 @@ import {
   defaultModifiers, defaultOptionByGroup,
   type ChosenModifier, type ModifierGroup,
 } from '@/src/lib/modifiers';
+import { Combobox, type ComboboxOption } from '@/src/components/ui/Combobox';
+import { cleanName, customerLabel } from '@/src/lib/customer';
 import { computeOrderTotals, changeDue } from '@/src/lib/money';
 import { DEVELOPER_CREDIT, RECEIPT_CREDIT_LINES } from '@/src/lib/developer-credit';
 
@@ -139,6 +141,43 @@ function Numpad({ value, onChange }: { value: string; onChange: (v: string) => v
           {k}
         </button>
       ))}
+    </div>
+  );
+}
+
+/* Customer capture. One component, mounted on both the cart panel and the
+   payment screen against the same state, so wherever the cashier thinks to
+   add a name, the field is there. Empty is a walk-in — nothing is stored. */
+function CustomerFields({
+  name, onName, phone, onPhone, matches,
+}: {
+  name: string;
+  onName: (v: string) => void;
+  phone: string;
+  onPhone: (v: string) => void;
+  matches: ComboboxOption[];
+}) {
+  return (
+    <div className="space-y-2">
+      <Combobox
+        value={name}
+        onChange={onName}
+        // Picking a known customer brings their number along, so a regular is
+        // one tap rather than two fields.
+        onPick={opt => { if (opt.sub) onPhone(opt.sub); }}
+        options={matches}
+        placeholder="Customer name — leave empty for walk-in"
+      />
+      {/* The phone only earns its space once there is a name to attach it to. */}
+      {name.trim() && (
+        <input
+          value={phone}
+          onChange={e => onPhone(e.target.value)}
+          placeholder="Phone (optional)"
+          inputMode="tel"
+          className="w-full rounded-xl border border-[#2b2f2b] bg-[#111311] px-3 py-2.5 text-sm text-[#f4efeb] placeholder:text-[#5f635f] focus:border-[#349f2d] focus:outline-none"
+        />
+      )}
     </div>
   );
 }
@@ -428,6 +467,11 @@ function Receipt80mm({
       <div className={`${dash} mt-2 pt-1.5 space-y-0.5`}>
         <div className="flex justify-between"><span>Date</span><span>{new Date(order.createdAt).toLocaleString('en-GH', { dateStyle: 'short', timeStyle: 'short' })}</span></div>
         <div className="flex justify-between"><span>Ticket</span><span>{order.orderNumber}</span></div>
+        {/* Only printed when a real name was given — a receipt that says
+            "Walk-in" tells the customer nothing they don't know. */}
+        {cleanName(order.customerName) && (
+          <div className="flex justify-between"><span>Customer</span><span>{cleanName(order.customerName)}</span></div>
+        )}
         {order.staff?.name && <div className="flex justify-between"><span>Served by</span><span>{order.staff.name}</span></div>}
         {order.deliveryType && <div className="flex justify-between"><span>Type</span><span>{DELIVERY_LABELS[order.deliveryType] ?? order.deliveryType}</span></div>}
       </div>
@@ -544,6 +588,8 @@ export default function POSPage() {
   const [deliveryType, setDeliveryType] = useState('TAKEAWAY');
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
+  /** Suggestions for the customer field — names this shop has served before. */
+  const [customerMatches, setCustomerMatches] = useState<ComboboxOption[]>([]);
   const [orderNotes, setOrderNotes] = useState('');
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
   const [discountAmount, setDiscountAmount] = useState(0);
@@ -798,6 +844,29 @@ export default function POSPage() {
   }, [authStatus, isItAdmin]);
 
   useEffect(() => { posSessionRef.current = posSession; }, [posSession]);
+
+  /* Customer suggestions. Debounced so a fast typist does not fire a request
+     per keystroke, and aborted on change so a slow earlier response can never
+     overwrite the list for what is now in the box. A failure is silent — the
+     cashier types the name either way. */
+  useEffect(() => {
+    if (authStatus !== 'authenticated') return;
+    const controller = new AbortController();
+    const t = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/pos/customers?q=${encodeURIComponent(customerName)}`, {
+          signal: controller.signal,
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!Array.isArray(data)) return;
+        setCustomerMatches(
+          data.map((c: any) => ({ id: c.id, label: c.name, sub: c.phone })),
+        );
+      } catch { /* aborted or offline — suggestions are optional */ }
+    }, 180);
+    return () => { clearTimeout(t); controller.abort(); };
+  }, [customerName, authStatus]);
 
   useEffect(() => {
     if (sessionChecked && authSession?.user && registerGate === 'active') { fetchOrders(); fetchOpenTickets(); }
@@ -1615,13 +1684,13 @@ export default function POSPage() {
             );
           })()}
 
-          {/* Customer */}
-          <div className="grid grid-cols-2 gap-2">
-            <input value={customerName} onChange={e => setCustomerName(e.target.value)} placeholder="Customer name"
-              className="bg-[#191c19] border border-[#2b2f2b] rounded-xl px-3 py-2 text-xs text-[#f4efeb] placeholder:text-[#aba8a4]/60 focus:outline-none focus:border-[#349f2d]" />
-            <input value={customerPhone} onChange={e => setCustomerPhone(e.target.value)} placeholder="Phone (optional)"
-              className="bg-[#191c19] border border-[#2b2f2b] rounded-xl px-3 py-2 text-xs text-[#f4efeb] placeholder:text-[#aba8a4]/60 focus:outline-none focus:border-[#349f2d]" />
-          </div>
+          {/* Customer — same bound state as the cart panel, so a name attached
+              before charging is still here, and can still be added now. */}
+          <CustomerFields
+            name={customerName} onName={setCustomerName}
+            phone={customerPhone} onPhone={setCustomerPhone}
+            matches={customerMatches}
+          />
         </div>
 
         <div className="shrink-0 p-4 border-t border-[#2b2f2b] bg-[#0a0b0a]">
@@ -1804,7 +1873,10 @@ export default function POSPage() {
           ) : todayOrders.map(order => (
             <div key={order.id} className="bg-[#191c19] border border-[#2b2f2b] rounded-2xl p-4 flex items-start justify-between gap-3">
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold text-[#f4efeb]">{order.orderNumber}</p>
+                <p className="text-sm font-semibold text-[#f4efeb]">
+                  {order.orderNumber}
+                  <span className="ml-2 font-normal text-xs text-[#aba8a4]">{customerLabel(order)}</span>
+                </p>
                 <p className="text-xs text-[#aba8a4] mt-0.5 truncate">{order.items?.map((i: any) => `${i.quantity}× ${i.name}`).join(', ')}</p>
                 <p className="text-xs text-[#aba8a4]">{formatTime(order.createdAt)} · {PAYMENT_LABELS[order.paymentMethod] ?? order.paymentMethod}</p>
               </div>
@@ -1928,8 +2000,10 @@ export default function POSPage() {
                       onClick={() => setSettling(t)}
                       className="shrink-0 rounded-xl border border-yellow-500/40 bg-yellow-500/10 px-3 py-2 text-left transition-colors hover:bg-yellow-500/20"
                     >
-                      <span className="block font-mono text-[11px] font-bold text-yellow-300">
-                        {t.orderNumber}
+                      {/* The name is what a cashier calls out, so it leads;
+                          the ticket number is the fallback for a walk-in. */}
+                      <span className="block max-w-[9rem] truncate font-mono text-[11px] font-bold text-yellow-300">
+                        {cleanName(t.customerName) || t.orderNumber}
                       </span>
                       <span className="block text-[11px] text-[#aba8a4]">
                         {formatCurrency(Number(t.total))} · {mins}m
@@ -2140,6 +2214,14 @@ export default function POSPage() {
                 </button>
               </div>
             )}
+
+            {/* Customer — on the cart, not buried in the payment screen, so a
+                name can be attached to a "send to kitchen" ticket too. */}
+            <CustomerFields
+              name={customerName} onName={setCustomerName}
+              phone={customerPhone} onPhone={setCustomerPhone}
+              matches={customerMatches}
+            />
 
             {/* Delivery type — chosen at order entry, before payment */}
             <div className="flex gap-1.5">

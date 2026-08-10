@@ -294,6 +294,14 @@ model Order {
   changeAmount        Decimal?             @db.Decimal(10, 2)
   splitPayments       Json? // [{method, amount, ref?}] for SPLIT orders
   notes               String?
+  /**
+   * customerName / customerPhone stay on the order as the receipt snapshot.
+   * customerId is the link to the reusable record. Renaming a customer must
+   * never rewrite what a past receipt said, so these are not derived from the
+   * relation — same principle as transactionSnapshot.
+   */
+  customerId          String?
+  customer            Customer?            @relation(fields: [customerId], references: [id])
   customerName        String?
   customerPhone       String?
   customerAddress     String?
@@ -314,6 +322,38 @@ model Order {
   @@index([sessionId, isDemo]) // session order summaries
   @@index([staffId, createdAt]) // per-staff order history
   @@index([status, createdAt]) // order list filtering
+  @@index([customerId]) // a customer's order history
+}
+
+/**
+ * A returning customer. Created from the register the first time a name is
+ * typed, then offered back as a suggestion — the till should never make
+ * someone spell their name twice.
+ *
+ * A walk-in is the absence of a row, not a row called "Walk-in": inventing one
+ * would put a fake name at the top of every suggestion list.
+ */
+model Customer {
+  id    String  @id @default(cuid())
+  name  String
+  /**
+   * The dedupe key when given — two orders with the same phone are the same
+   * person even if the name was typed differently. Names alone are matched
+   * case- and whitespace-insensitively via nameKey.
+   */
+  phone String? @unique
+  /**
+   * Normalised name for matching: trimmed, inner whitespace collapsed,
+   * lowercased. "Kwame", "kwame " and "KWAME" share one key.
+   */
+  nameKey   String
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  orders Order[]
+
+  @@index([nameKey])
 }
 
 model OrderItem {

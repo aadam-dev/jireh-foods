@@ -7,6 +7,63 @@ import { getTaxRate, isInventoryTrackingEnabled } from '@/src/lib/settings';
 import { logAudit } from '@/src/lib/audit';
 import { buildTransactionSnapshot, recordOrderEvent } from '@/src/lib/order-events';
 import { computeOrderTotals, sumMoney, lineTotal, changeDue, moneyEquals } from '@/src/lib/money';
+import { cleanName, nameKey, normalisePhone, isUsablePhone } from '@/src/lib/customer';
+
+/* Attach the sale to a reusable customer record, creating one on first sight.
+   ────────────────────────────────────────────────────────────────────────────
+   Runs inside the order transaction so a sale and its customer land together
+   or not at all. Matching order:
+     1. a usable phone — the same number is the same person, whatever was typed
+        in the name box that day, and the name on file is refreshed
+     2. otherwise the normalised name
+   A half-typed phone ("0241") is treated as no phone rather than claiming the
+   unique slot. Returns null for a walk-in: no name, no row, no phantom
+   "Walk-in" customer at the top of every suggestion list. */
+async function resolveCustomer(
+  tx: Parameters<Parameters<typeof prisma.$transaction>[0]>[0],
+  rawName?: string | null,
+  rawPhone?: string | null,
+): Promise<string | null> {
+  const name = cleanName(rawName);
+  const phone = isUsablePhone(rawPhone) ? normalisePhone(rawPhone) : null;
+  if (!name && !phone) return null;
+
+  if (phone) {
+    const existing = await tx.customer.findUnique({ where: { phone }, select: { id: true, name: true } });
+    if (existing) {
+      /* Adopt a genuinely different spelling on a later visit ("Kwame" →
+         "Kwame Mensah"), but ignore pure case and spacing churn — otherwise
+         one cashier typing in caps renames the customer for everybody, and
+         the name in the list flips about between visits. A blank never wipes
+         the name on file. */
+      if (name && nameKey(name) !== nameKey(existing.name)) {
+        await tx.customer.update({ where: { id: existing.id }, data: { name, nameKey: nameKey(name) } });
+      }
+      return existing.id;
+    }
+  }
+
+  if (name) {
+    const byName = await tx.customer.findFirst({
+      where: { nameKey: nameKey(name) },
+      select: { id: true, phone: true },
+    });
+    if (byName) {
+      // Someone known by name alone has now given a number — record it, but
+      // never overwrite a number already there.
+      if (phone && !byName.phone) {
+        await tx.customer.update({ where: { id: byName.id }, data: { phone } });
+      }
+      return byName.id;
+    }
+  }
+
+  const created = await tx.customer.create({
+    data: { name: name || phone!, nameKey: nameKey(name || phone!), phone },
+    select: { id: true },
+  });
+  return created.id;
+}
 
 const orderItemSchema = z.object({
   menuItemId: z.string(),
@@ -39,8 +96,12 @@ const createOrderSchema = z.object({
   tenderedAmount: z.coerce.number().optional(),
   discountAmount: z.coerce.number().default(0),
   sessionId: z.string().optional(),
-  customerName: z.string().optional(),
-  customerPhone: z.string().optional(),
+  /* Nullable as well as optional: a walk-in is expressed as an absent name,
+     and callers express "absent" both ways — the register omits the key, an
+     explicit null arrives from anything serialising the whole form. Rejecting
+     null here would fail the commonest sale there is. */
+  customerName: z.string().max(80).nullable().optional(),
+  customerPhone: z.string().max(30).nullable().optional(),
   notes: z.string().optional(),
   // Split payment legs — required when paymentMethod === 'SPLIT'
   splitPayments: z.array(splitLegSchema).optional(),
@@ -220,6 +281,8 @@ export async function POST(req: NextRequest) {
 
   // Run order creation + BOM deductions atomically
   const order = await prisma.$transaction(async (tx) => {
+    const customerId = await resolveCustomer(tx, data.customerName, data.customerPhone);
+
     const created = await tx.order.create({
       data: {
         orderNumber: generateOrderNumber(),
@@ -241,8 +304,9 @@ export async function POST(req: NextRequest) {
         splitPayments: data.splitPayments ? (data.splitPayments as any) : undefined,
         changeAmount: changeAmount ?? null,
         sessionId: data.sessionId ?? null,
-        customerName: data.customerName,
-        customerPhone: data.customerPhone,
+        customerId,
+        customerName: cleanName(data.customerName) || null,
+        customerPhone: data.customerPhone || null,
         notes: data.notes,
         staffId: session.user.id,
         isDemo,
