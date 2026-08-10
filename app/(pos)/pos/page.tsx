@@ -13,11 +13,14 @@ import Image from 'next/image';
 import { formatCurrency, formatTime } from '@/src/lib/utils';
 import { enqueueOrder, getPendingOrders, syncPendingOrders } from '@/src/lib/offlineQueue';
 import { businessDateKey, classifyRegisterSession } from '@/src/lib/session-utils';
+import {
+  defaultModifiers, defaultOptionByGroup,
+  type ChosenModifier, type ModifierGroup,
+} from '@/src/lib/modifiers';
 import { computeOrderTotals, changeDue } from '@/src/lib/money';
 import { DEVELOPER_CREDIT, RECEIPT_CREDIT_LINES } from '@/src/lib/developer-credit';
 
 /* ─── Types ─────────────────────────────────────────────────────────── */
-interface ChosenModifier { optionId: string; groupName: string; name: string; priceDelta: number }
 /* One cart line. Keyed by lineId, not menuItemId: the same dish ordered two
    ways ("Jollof, grilled" and "Jollof, fried") has to stay two lines. */
 interface CartItem {
@@ -31,11 +34,6 @@ interface CartItem {
   quantity: number;
   notes?: string;
   modifiers: ChosenModifier[];
-}
-interface ModifierOption { id: string; name: string; priceDelta: number }
-interface ModifierGroup {
-  id: string; name: string; selection: 'SINGLE' | 'MULTI';
-  isRequired: boolean; options: ModifierOption[];
 }
 interface MenuItem {
   id: string; name: string; price: number; description?: string;
@@ -143,27 +141,6 @@ function Numpad({ value, onChange }: { value: string; onChange: (v: string) => v
       ))}
     </div>
   );
-}
-
-/* The choices a dish arrives with before the cashier touches anything: the
-   first option of every required single-choice group. The options sheet seeds
-   itself from this, and quick-sale mode (sheet off in Settings) applies it
-   silently — so a dish whose protein choice is *required* still reaches the
-   kitchen with an answer instead of a blank. One definition, both paths. */
-function defaultOptionByGroup(item: MenuItem): Record<string, ModifierOption> {
-  const out: Record<string, ModifierOption> = {};
-  for (const g of item.modifierGroups ?? []) {
-    if (g.isRequired && g.selection === 'SINGLE' && g.options.length > 0) out[g.id] = g.options[0];
-  }
-  return out;
-}
-
-function defaultModifiers(item: MenuItem): ChosenModifier[] {
-  const defaults = defaultOptionByGroup(item);
-  return (item.modifierGroups ?? []).flatMap(g => {
-    const o = defaults[g.id];
-    return o ? [{ optionId: o.id, groupName: g.name, name: o.name, priceDelta: o.priceDelta }] : [];
-  });
 }
 
 /* ─── Modifier sheet ─────────────────────────────────────────────────
