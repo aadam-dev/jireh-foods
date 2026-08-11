@@ -61,25 +61,51 @@
   **Expect:** Register opens; header shows green "Shift Open" pill
 
 ### 2.2 Closing a Shift
-- [ ] With shift open, tap "Shift Open" pill (desktop) or "Shift" tab (mobile)  
-  **Expect:** Session management screen showing revenue totals per payment method (Cash / MoMo / Bolt Food)
-- [ ] In the **Cash** section, enter the physical cash counted using the numpad  
-  **Expect:** Live discrepancy label updates (green if 0, red if gap)
-- [ ] If MoMo revenue > 0 in session, enter the actual MoMo received amount  
-  **Expect:** MoMo discrepancy shown
-- [ ] If Bolt Food revenue > 0, enter actual Bolt received  
-  **Expect:** Bolt discrepancy shown
-- [ ] Tap "Close Session" when all amounts look correct  
-  **Expect (no discrepancy):** Summary screen immediately, session closed
-- [ ] Re-test with wrong cash amount (e.g., enter GH₵ 80 when expected is GH₵ 155)  
-  **Expect:** Alert dialog: "Cash doesn't match — expected X, you entered Y. Close anyway?" — must confirm
-- [ ] Dismiss the alert, correct the amount, close again  
-  **Expect:** Closes cleanly if amounts now match
-- [ ] Summary screen after close should show per-method cards: Expected / Actual / Discrepancy for Cash, MoMo, Bolt
-- [ ] After closing, navigate to `/pos`  
-  **Expect:** "Open Today's Shift" gate appears again
+- [ ] With a shift open, tap **Menu** → **Close the shift**
+  **Expect:** One card per tender that took money. Cash always; MoMo and Bolt only if the shift took some.
+- [ ] Read the Cash line before touching anything
+  **Expect:** Its working is spelled out — `Float … · Sales + … · Out − …` — and **Difference** reads **"Not counted yet"**, not a red number.
+- [ ] Tap **Count notes**, add a few denominations, tap **Done**
+  **Expect:** The sheet closes, **Counted** fills in, **Difference** appears, and the card shows "N notes and coins counted · recount".
+- [ ] Tap **Type total** instead and key a figure
+  **Expect:** Same Counted / Difference behaviour without the note sheet.
+- [ ] If MoMo or Bolt revenue > 0, key the amount received
+  **Expect:** That row shows "Not counted yet" until keyed, then Exact / Over by / Short by.
+- [ ] Check **Total difference**
+  **Expect:** Rolls up every counted tender. Reads "Not counted yet" while nothing has been counted.
+- [ ] Type a **Closing note**, then tap **Close Shift**
+  **Expect (exact):** Summary screen; note saved to the shift.
+  **Expect (difference):** A confirm listing each difference, worded "Difference found" — never "variance". Cancelling returns you to the screen with the count intact.
+- [ ] Tap **Not yet**
+  **Expect:** Back to selling, shift still open, counted figures kept.
+- [ ] Tap **Print summary**
+  **Expect:** Shift report on till paper — opened/closed, cashier, sales by tender, cash in/out lines, expected vs counted, difference, note.
 
----
+### 2.3 Cash in / cash out
+- [ ] **Menu** → **Cash out**, key 50, tap **Bought gas**, tap **Record**
+  **Expect:** Saved. **Expected in drawer** drops by GH₵50 on the close screen, and the movement is listed with who recorded it.
+- [ ] Try to record with an empty reason
+  **Expect:** Refused — a movement with no explanation is the thing this prevents.
+- [ ] Try to record with amount 0
+  **Expect:** Refused.
+- [ ] **Menu** → **Cash in**, key 20, reason "Change for drawer"
+  **Expect:** Expected in drawer rises by GH₵20.
+- [ ] Open Admin → Reports → "Who sold it?" for the same shift
+  **Expect:** Its **Expected in drawer** matches the till exactly. (Three places compute this; they share one helper.)
+
+### 2.4 The register Menu
+- [ ] Tap **Menu** at both a phone width and a desktop width
+  **Expect:** Same items at both — nothing is desktop-only.
+- [ ] Press Escape, and tap outside
+  **Expect:** Closes both ways; focus returns to the Menu button.
+- [ ] As a CASHIER
+  **Expect:** No "Back to dashboard".
+- [ ] As OWNER or MANAGER
+  **Expect:** "Back to dashboard" present.
+- [ ] With no shift open
+  **Expect:** Shift sales, Count the drawer, Cash in and Cash out are visibly disabled, not hidden.
+- [ ] Tap **Sign out**
+  **Expect:** A confirm first.
 
 ## 3. POS — Taking Orders
 

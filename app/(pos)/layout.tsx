@@ -15,7 +15,10 @@ export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
   maximumScale: 1,
-  userScalable: false,   // prevent accidental pinch-zoom on POS tablet
+  userScalable: false,
+  // black-translucent puts the web view under the notch; without cover the
+  // safe-area insets the sheets rely on all resolve to zero.
+  viewportFit: 'cover' as const,   // prevent accidental pinch-zoom on POS tablet
   themeColor: '#349f2d',
 };
 

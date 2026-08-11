@@ -233,75 +233,107 @@ body {
   }
 }
 
-/* ── Thermal receipt print (80mm POS paper) ────────────────────────────────── */
-/* Triggered from POS success screen — only #receipt-print renders */
-@media print {
-  @page {
-    size: 80mm auto;   /* thermal roll width; height auto-expands with content */
-    margin: 4mm 2mm;   /* small gutter, no wasted paper */
-  }
+/* ── Printing ──────────────────────────────────────────────────────────────
+   One mechanism, because there used to be three and they fought.
 
-  /* Hide the screen success UI; only the receipt div renders */
+   Two unconditional @page rules lived here — 80mm for receipts and A4 for
+   admin reports. Only one @page can win per document and the later one did,
+   so the A4 box applied to receipts as well. The page box is now 80mm by
+   default (the register is what prints, all day) and A4 only for a document
+   that opts in with .print-a4, which Chromium honours via the named page.
+
+   Known limitation, verified in Chromium 1194: `size: 80mm auto` is NOT
+   honoured — a mixed length/auto size is dropped and the page falls back to
+   the browser default (Letter). `size: 80mm 200mm` is honoured. It is left as
+   `auto` deliberately: a fixed height would feed and cut ~14cm of blank roll
+   after every short receipt, whereas with `auto` the thermal driver's own roll
+   setting governs the paper and the 72mm content width fits it either way.
+   Worth re-checking against the real printer before changing.
+
+   The admin rules below were also dead: they were written with a doubled
+   backslash, which CSS reads as a class named `print\` plus a pseudo-class
+   that does not exist, and one invalid selector invalidates the whole list.
+   So the sidebar was never hidden, while a *valid* rule below still repainted
+   cards light — dark text on light paper, near-invisible. A single backslash
+   is correct: the class is literally `print:hidden`, only the colon escapes. */
+
+@page {
+  size: 80mm auto; /* thermal roll; height grows with the receipt */
+  margin: 4mm 2mm;
+}
+
+@media print {
+  /* Anything the printer should never see, on any page. */
   .print\:hidden {
     display: none !important;
   }
 
-  /* Ensure the logo + any shading actually print on thermal/laser */
-  #receipt-print {
+  /* Logo and shading must survive the printer's colour handling. */
+  #receipt-print,
+  #shift-report-print {
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
   }
-  #receipt-print img {
+  #receipt-print img,
+  #shift-report-print img {
     max-width: 64px !important;
     height: auto !important;
   }
 }
 
-/* ── Print styles for admin reports (A4) ──────────────────────────────────── */
+/* ── A4 documents (admin reports) ──────────────────────────────────────────
+   Opt in by putting .print-a4 on the page root. */
+@page a4 {
+  size: A4 portrait;
+  margin: 18mm 15mm;
+}
+
 @media print {
-  /* Reset dark theme to white paper */
-  body {
+  .print-a4 {
+    page: a4;
+  }
+
+  .print-a4 body,
+  body:has(.print-a4) {
     background: white !important;
     background-image: none !important;
     color: #111 !important;
     font-size: 11pt;
   }
 
-  /* Hide sidebar, topbar, nav, and other chrome */
-  aside, nav,
-  [class*="sidebar"],
-  [class*="Sidebar"],
-  [data-sidebar],
-  .print\\:hidden {
+  /* Chrome that is never part of a report. */
+  .print-a4 aside,
+  .print-a4 nav,
+  .print-a4 [data-sidebar],
+  .print-a4 [class*="sidebar"],
+  .print-a4 [class*="Sidebar"] {
     display: none !important;
   }
 
-  /* Make report cards readable on white */
-  .bg-\\[\\#191c19\\], .bg-\\[\\#111311\\], .bg-\\[\\#0a0b0a\\] {
+  /* Dark surfaces to paper. Text colour is set alongside the background, so a
+     card can never end up light-on-light the way it did before. */
+  .print-a4 .bg-\[\#191c19\],
+  .print-a4 .bg-\[\#111311\],
+  .print-a4 .bg-\[\#0a0b0a\] {
     background: #f9f9f9 !important;
     border-color: #ddd !important;
   }
 
-  /* Text colour overrides */
-  .text-\\[\\#f4efeb\\], .text-\\[\\#aba8a4\\] {
-    color: #333 !important;
+  .print-a4 .text-\[\#f4efeb\],
+  .print-a4 .text-\[\#aba8a4\],
+  .print-a4 .text-\[\#5ecf4f\] {
+    color: #222 !important;
   }
 
-  /* Ensure charts & cards don't get clipped */
-  .recharts-responsive-container {
+  .print-a4 .recharts-responsive-container {
     page-break-inside: avoid;
   }
 
-  /* Card page breaks */
-  .rounded-2xl, .rounded-xl {
+  .print-a4 .rounded-2xl,
+  .print-a4 .rounded-xl {
     page-break-inside: avoid;
     border: 1px solid #e0e0e0 !important;
     background: #fafafa !important;
-  }
-
-  /* Page settings */
-  @page {
-    size: A4 portrait;
-    margin: 18mm 15mm;
+    color: #222 !important;
   }
 }

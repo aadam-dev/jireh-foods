@@ -125,6 +125,7 @@ model User {
   closedSessions PosSession[]    @relation("ClosedSessions")
   createdPOs     PurchaseOrder[] @relation("CreatedPOs")
   receivedPOs    PoReceipt[]     @relation("ReceivedPOs")
+  cashMovements  CashMovement[]
 }
 
 model StaffProfile {
@@ -166,12 +167,42 @@ model PosSession {
   status       SessionStatus @default(OPEN)
   notes        String?
 
-  orders Order[]
+  orders        Order[]
+  cashMovements CashMovement[]
 
   @@index([status])
   @@index([openedAt])
   @@index([openedBy])
   @@index([closedBy])
+}
+
+enum CashDirection {
+  IN
+  OUT
+}
+
+/**
+ * Money that entered or left the drawer without being a sale — gas bought from
+ * the till, the owner taking cash, change brought in.
+ *
+ * Without these a shift that paid GH₵50 for gas simply comes up GH₵50 short at
+ * close, and the manual already names it as a common innocent reason for a
+ * difference: "a payout taken from the drawer without a note". This is the
+ * note.
+ */
+model CashMovement {
+  id        String        @id @default(cuid())
+  sessionId String
+  session   PosSession    @relation(fields: [sessionId], references: [id])
+  direction CashDirection
+  amount    Decimal       @db.Decimal(10, 2)
+  /** Required. An unexplained movement is the thing this exists to prevent. */
+  reason    String
+  createdBy String
+  user      User          @relation(fields: [createdBy], references: [id])
+  createdAt DateTime      @default(now())
+
+  @@index([sessionId])
 }
 
 // ─── Menu ─────────────────────────────────────────────────────────────────────
