@@ -125,6 +125,7 @@ model User {
   closedSessions PosSession[]    @relation("ClosedSessions")
   createdPOs     PurchaseOrder[] @relation("CreatedPOs")
   receivedPOs    PoReceipt[]     @relation("ReceivedPOs")
+  cashMovements  CashMovement[]
 }
 
 model StaffProfile {
@@ -166,12 +167,42 @@ model PosSession {
   status       SessionStatus @default(OPEN)
   notes        String?
 
-  orders Order[]
+  orders        Order[]
+  cashMovements CashMovement[]
 
   @@index([status])
   @@index([openedAt])
   @@index([openedBy])
   @@index([closedBy])
+}
+
+enum CashDirection {
+  IN
+  OUT
+}
+
+/**
+ * Money that entered or left the drawer without being a sale — gas bought from
+ * the till, the owner taking cash, change brought in.
+ *
+ * Without these a shift that paid GH₵50 for gas simply comes up GH₵50 short at
+ * close, and the manual already names it as a common innocent reason for a
+ * difference: "a payout taken from the drawer without a note". This is the
+ * note.
+ */
+model CashMovement {
+  id        String        @id @default(cuid())
+  sessionId String
+  session   PosSession    @relation(fields: [sessionId], references: [id])
+  direction CashDirection
+  amount    Decimal       @db.Decimal(10, 2)
+  /** Required. An unexplained movement is the thing this exists to prevent. */
+  reason    String
+  createdBy String
+  user      User          @relation(fields: [createdBy], references: [id])
+  createdAt DateTime      @default(now())
+
+  @@index([sessionId])
 }
 
 // ─── Menu ─────────────────────────────────────────────────────────────────────
@@ -294,6 +325,14 @@ model Order {
   changeAmount        Decimal?             @db.Decimal(10, 2)
   splitPayments       Json? // [{method, amount, ref?}] for SPLIT orders
   notes               String?
+  /**
+   * customerName / customerPhone stay on the order as the receipt snapshot.
+   * customerId is the link to the reusable record. Renaming a customer must
+   * never rewrite what a past receipt said, so these are not derived from the
+   * relation — same principle as transactionSnapshot.
+   */
+  customerId          String?
+  customer            Customer?            @relation(fields: [customerId], references: [id])
   customerName        String?
   customerPhone       String?
   customerAddress     String?
@@ -314,6 +353,38 @@ model Order {
   @@index([sessionId, isDemo]) // session order summaries
   @@index([staffId, createdAt]) // per-staff order history
   @@index([status, createdAt]) // order list filtering
+  @@index([customerId]) // a customer's order history
+}
+
+/**
+ * A returning customer. Created from the register the first time a name is
+ * typed, then offered back as a suggestion — the till should never make
+ * someone spell their name twice.
+ *
+ * A walk-in is the absence of a row, not a row called "Walk-in": inventing one
+ * would put a fake name at the top of every suggestion list.
+ */
+model Customer {
+  id    String  @id @default(cuid())
+  name  String
+  /**
+   * The dedupe key when given — two orders with the same phone are the same
+   * person even if the name was typed differently. Names alone are matched
+   * case- and whitespace-insensitively via nameKey.
+   */
+  phone String? @unique
+  /**
+   * Normalised name for matching: trimmed, inner whitespace collapsed,
+   * lowercased. "Kwame", "kwame " and "KWAME" share one key.
+   */
+  nameKey   String
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  orders Order[]
+
+  @@index([nameKey])
 }
 
 model OrderItem {

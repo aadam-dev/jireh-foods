@@ -19,7 +19,12 @@ const itemSchema = z.object({
   name: z.string().min(1, 'Name required'),
   description: z.string().optional(),
   price: z.coerce.number().positive('Price must be positive'),
-  costPrice: z.coerce.number().optional(),
+  /* An empty cost box means "unknown", not "free". Without the preprocess,
+     z.coerce turns '' into 0 and the plate quietly reads as costing nothing. */
+  costPrice: z.preprocess(
+    v => (v === '' || v === null ? undefined : v),
+    z.coerce.number().nonnegative('Cost cannot be negative').optional(),
+  ),
   isAvailable: z.boolean().default(true),
   isPopular: z.boolean().default(false),
   tags: z.string().optional(),
@@ -115,7 +120,7 @@ export default function MenuPage() {
       name: item.name,
       description: item.description ?? '',
       price: item.price,
-      costPrice: item.costPrice ?? '',
+      costPrice: item.costPrice ?? undefined,
       isAvailable: item.isAvailable,
       isPopular: item.isPopular,
       tags: (item.tags ?? []).join(', '),
@@ -153,7 +158,10 @@ export default function MenuPage() {
         type: 'item',
         categoryId: itemModal.categoryId,
         tags: values.tags ? values.tags.split(',').map(t => t.trim()).filter(Boolean) : [],
+        // null rather than undefined so clearing a photo or a cost actually
+        // clears it on save instead of being dropped from the JSON body.
         image: imageUrl || null,
+        costPrice: values.costPrice ?? null,
         ...(itemModal.item ? { id: itemModal.item.id } : {}),
       };
       await apiSend('/api/admin/menu', itemModal.item ? 'PATCH' : 'POST', payload);

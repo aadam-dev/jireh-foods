@@ -165,7 +165,9 @@ export default function ReportsPage() {
   ];
 
   return (
-    <div className="p-4 sm:p-6 max-w-7xl mx-auto space-y-6 print:p-0 print:space-y-4">
+    // print-a4 opts this document into the A4 page box and the paper palette;
+    // everything else in the app prints on the 80mm default.
+    <div className="print-a4 p-4 sm:p-6 max-w-7xl mx-auto space-y-6 print:p-0 print:space-y-4">
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3 print:hidden">
         <div>
@@ -592,9 +594,9 @@ export default function ReportsPage() {
                           {[
                             { label: 'Opening Float', value: formatCurrency(s.openingFloat), color: 'text-[#f4efeb]' },
                             { label: 'Cash Sales', value: formatCurrency(s.cashRevenue), color: 'text-[#f4efeb]' },
-                            { label: 'Expected Cash', value: formatCurrency(s.expectedCash), color: 'text-[#f4efeb]' },
+                            { label: 'Expected in drawer', value: formatCurrency(s.expectedCash), color: 'text-[#f4efeb]' },
                             {
-                              label: 'Cash Counted',
+                              label: 'Counted',
                               value: s.closingCash !== null && s.closingCash !== undefined
                                 ? formatCurrency(s.closingCash)
                                 : '—',
@@ -617,7 +619,7 @@ export default function ReportsPage() {
                                 ? 'bg-blue-500/5 border-blue-500/20'
                                 : 'bg-red-500/5 border-red-500/20'
                           }`}>
-                            <span className="text-xs text-[#aba8a4]">Cash Discrepancy</span>
+                            <span className="text-xs text-[#aba8a4]">Difference</span>
                             <span className={`text-sm font-bold ${discrepancyClass}`}>{discrepancyLabel}</span>
                           </div>
                         )}

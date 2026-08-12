@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/src/lib/prisma';
 import { requireResource } from '@/src/lib/api-auth';
 import { startOfMonth, endOfMonth, eachDayOfInterval, format } from 'date-fns';
+import { drawerTotals, drawerDifference } from '@/src/lib/cash';
 
 export async function GET(req: NextRequest) {
   const authResult = await requireResource('reports');
@@ -31,6 +32,9 @@ export async function GET(req: NextRequest) {
       include: {
         openedByUser: { select: { name: true } },
         closedByUser: { select: { name: true } },
+        // Needed for expected-in-drawer; without them this report disagrees
+        // with the till on any shift that had a payout.
+        cashMovements: { select: { direction: true, amount: true } },
       },
       orderBy: { openedAt: 'desc' },
     }),
@@ -108,9 +112,15 @@ export async function GET(req: NextRequest) {
     const cashRevenue = sessionOrders
       .filter(o => o.paymentMethod === 'CASH')
       .reduce((sum, o) => sum + Number(o.total), 0);
-    const expectedCash = Number(s.openingFloat) + cashRevenue;
+    // Same helper the register and the close endpoint use.
+    const drawer = drawerTotals({
+      openingFloat: s.openingFloat,
+      cashRevenue,
+      movements: s.cashMovements,
+    });
+    const expectedCash = drawer.expected;
     const closingCash = s.closingCash ? Number(s.closingCash) : null;
-    const discrepancy = closingCash !== null ? closingCash - expectedCash : null;
+    const discrepancy = drawerDifference(closingCash, expectedCash);
     const durationMs = s.closedAt
       ? new Date(s.closedAt).getTime() - new Date(s.openedAt).getTime()
       : null;
@@ -128,6 +138,8 @@ export async function GET(req: NextRequest) {
       sessionRevenue,
       cashRevenue,
       expectedCash,
+      cashIn: drawer.cashIn,
+      cashOut: drawer.cashOut,
       discrepancy,
       orderCount: sessionOrders.length,
       durationHours,

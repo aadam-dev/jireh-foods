@@ -2,22 +2,37 @@
 
 import { useEffect, useState, useCallback, useRef, type ReactNode } from 'react';
 import { useSession, signOut } from 'next-auth/react';
+import { useRouter } from 'next/navigation';
 import {
   Search, ShoppingCart, Trash2, Plus, Minus, X, LogOut,
   LayoutDashboard, ChevronRight, Banknote, Smartphone, CreditCard,
   Building2, CheckCircle2, Printer, RotateCcw, Clock, AlertCircle,
   Lock, Unlock, Receipt, ChevronDown, Pencil, Zap,
+  MoreVertical,
+  Calculator
 } from 'lucide-react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { formatCurrency, formatTime } from '@/src/lib/utils';
 import { enqueueOrder, getPendingOrders, syncPendingOrders } from '@/src/lib/offlineQueue';
-import { classifyRegisterSession } from '@/src/lib/session-utils';
+import { businessDateKey, classifyRegisterSession } from '@/src/lib/session-utils';
+import {
+  defaultModifiers, defaultOptionByGroup,
+  type ChosenModifier, type ModifierGroup,
+} from '@/src/lib/modifiers';
+import { Combobox, type ComboboxOption } from '@/src/components/ui/Combobox';
+import { cleanName, customerLabel } from '@/src/lib/customer';
+import { isAdminRole } from '@/src/lib/permissions';
+import {
+  GHS_DENOMINATIONS, denomLabel, denominationTotal, bumpDenomination,
+  type DenominationCounts,
+} from '@/src/lib/denominations';
+import { drawerTotals, drawerDifference, differenceLabel } from '@/src/lib/cash';
+import { ActionMenu, type ActionMenuItem } from '@/src/components/ui/ActionMenu';
 import { computeOrderTotals, changeDue } from '@/src/lib/money';
 import { DEVELOPER_CREDIT, RECEIPT_CREDIT_LINES } from '@/src/lib/developer-credit';
 
 /* ─── Types ─────────────────────────────────────────────────────────── */
-interface ChosenModifier { optionId: string; groupName: string; name: string; priceDelta: number }
 /* One cart line. Keyed by lineId, not menuItemId: the same dish ordered two
    ways ("Jollof, grilled" and "Jollof, fried") has to stay two lines. */
 interface CartItem {
@@ -32,11 +47,6 @@ interface CartItem {
   notes?: string;
   modifiers: ChosenModifier[];
 }
-interface ModifierOption { id: string; name: string; priceDelta: number }
-interface ModifierGroup {
-  id: string; name: string; selection: 'SINGLE' | 'MULTI';
-  isRequired: boolean; options: ModifierOption[];
-}
 interface MenuItem {
   id: string; name: string; price: number; description?: string;
   isPopular: boolean; image?: string | null; isAvailable: boolean;
@@ -50,6 +60,10 @@ function cartLineId(menuItemId: string, optionIds: string[]) {
 }
 interface PosSession { id: string; openedByUser: { id?: string; name: string }; openedAt: string; openingFloat: number; status: string }
 interface SessionStats { revenue: number; cashRevenue: number; momoRevenue: number; boltRevenue: number }
+interface CashMovement {
+  id: string; direction: 'IN' | 'OUT'; amount: number; reason: string;
+  createdAt: string; user?: { name: string } | null;
+}
 type RegisterGate = 'checking' | 'continue' | 'stale' | 'open_new' | 'active';
 
 const PAYMENT_METHODS = [
@@ -72,23 +86,67 @@ function cartStorageKey(userId?: string) {
   return userId ? `jireh_pos_cart_${userId}` : 'jireh_pos_cart_pending';
 }
 
+/* ─── Shift acknowledgement ──────────────────────────────────────────
+   Which shift this cashier has already said "yes, I'm on it" to. Once
+   acknowledged, refreshing the tab or relaunching the PWA mid-shift drops
+   straight back into selling instead of re-asking — a register that
+   re-interrogates its cashier between sales is the classic POS annoyance.
+
+   Scoped per user so a handover still shows the new cashier whose drawer
+   they are on, and stamped with the business day so a till left open
+   overnight surfaces the stale-shift warning once the next morning. */
+function shiftAckKey(userId?: string) {
+  return userId ? `jireh_pos_shift_ack_${userId}` : 'jireh_pos_shift_ack_pending';
+}
+
+function readShiftAck(userId?: string): string | null {
+  try {
+    const raw = localStorage.getItem(shiftAckKey(userId));
+    if (!raw) return null;
+    const { id, day } = JSON.parse(raw) as { id?: string; day?: string };
+    if (!id || day !== businessDateKey()) return null;
+    return id;
+  } catch { return null; }
+}
+
+function writeShiftAck(sessionId: string, userId?: string) {
+  try {
+    localStorage.setItem(shiftAckKey(userId), JSON.stringify({ id: sessionId, day: businessDateKey() }));
+  } catch {}
+}
+
+function clearShiftAck(userId?: string) {
+  try { localStorage.removeItem(shiftAckKey(userId)); } catch {}
+}
+
 /* ─── Tile artwork ───────────────────────────────────────────────────
-   Items without a photo (meat pie, buns, millet, brukina…) used to render a
-   30%-opacity plate emoji on a short tile — invisible during a rush and it
-   made the grid ragged. Give every photo-less item a solid, colour-coded
-   glyph tile at the same height as a photo so staff can still tap by sight. */
-const TILE_ART: { match: RegExp; glyph: string; tint: string }[] = [
-  { match: /pie|buns|bread|pastry|cake|doughnut|spring roll/i, glyph: '🥧', tint: '#8a5a1f' },
-  { match: /sobolo|brukina|millet|yoghurt|smoothie|juice|drink|water|malt|soda|coke|fanta|sprite/i, glyph: '🥤', tint: '#1f5a6b' },
-  { match: /jollof|rice|fried rice/i, glyph: '🍚', tint: '#7a4a1a' },
-  { match: /fufu|banku|kenkey|tuo|soup|stew/i, glyph: '🍲', tint: '#6b3f1f' },
-  { match: /chicken|fries|grill|kebab|meat|fish|tilapia/i, glyph: '🍗', tint: '#7a3a2a' },
+   Not every dish has a photograph, and one never will the day it is added.
+   Those tiles used to carry a food emoji on a tinted card, which reads as a
+   placeholder rather than a design — and next to real photography it looks
+   like something failed to load.
+
+   Instead the dish sets its own tile: its name, large, on a colour-coded
+   card. Same height as a photo so the grid stays even (the original reason
+   this exists), and a cashier reads the word faster than they decode a 🍚.
+   The keyword only picks the colour now, so a family of dishes still shares
+   a look and can be found by sight during a rush. */
+const TILE_TINTS: { match: RegExp; tint: string }[] = [
+  { match: /pie|buns|bread|pastry|cake|doughnut|spring roll/i, tint: '#8a5a1f' },
+  { match: /sobolo|brukina|millet|yoghurt|smoothie|juice|drink|water|malt|soda|coke|fanta|sprite/i, tint: '#1f5a6b' },
+  { match: /jollof|rice|fried rice/i, tint: '#7a4a1a' },
+  { match: /fufu|banku|kenkey|tuo|soup|stew/i, tint: '#6b3f1f' },
+  { match: /chicken|fries|grill|kebab|meat|fish|tilapia/i, tint: '#7a3a2a' },
 ];
 
-function tileArt(name: string) {
-  return (
-    TILE_ART.find(a => a.match.test(name)) ?? { glyph: '🍽', tint: '#2b3a2b' }
-  );
+function tileTint(name: string) {
+  return (TILE_TINTS.find(a => a.match.test(name)) ?? { tint: '#2b3a2b' }).tint;
+}
+
+/* The part of the name worth showing large. Sizes and qualifiers live on the
+   label under the tile already, so "Jollof Rice Only — Medium" shows as
+   "Jollof Rice" rather than repeating itself in two type sizes. */
+function tileHeadline(name: string) {
+  return name.split('—')[0].replace(/\bOnly\b/i, '').trim() || name;
 }
 
 /* ─── Numpad Component ───────────────────────────────────────────────── */
@@ -112,6 +170,43 @@ function Numpad({ value, onChange }: { value: string; onChange: (v: string) => v
   );
 }
 
+/* Customer capture. One component, mounted on both the cart panel and the
+   payment screen against the same state, so wherever the cashier thinks to
+   add a name, the field is there. Empty is a walk-in — nothing is stored. */
+function CustomerFields({
+  name, onName, phone, onPhone, matches,
+}: {
+  name: string;
+  onName: (v: string) => void;
+  phone: string;
+  onPhone: (v: string) => void;
+  matches: ComboboxOption[];
+}) {
+  return (
+    <div className="space-y-2">
+      <Combobox
+        value={name}
+        onChange={onName}
+        // Picking a known customer brings their number along, so a regular is
+        // one tap rather than two fields.
+        onPick={opt => { if (opt.sub) onPhone(opt.sub); }}
+        options={matches}
+        placeholder="Customer name — leave empty for walk-in"
+      />
+      {/* The phone only earns its space once there is a name to attach it to. */}
+      {name.trim() && (
+        <input
+          value={phone}
+          onChange={e => onPhone(e.target.value)}
+          placeholder="Phone (optional)"
+          inputMode="tel"
+          className="w-full rounded-xl border border-[#2b2f2b] bg-[#111311] px-3 py-2.5 text-sm text-[#f4efeb] placeholder:text-[#5f635f] focus:border-[#349f2d] focus:outline-none"
+        />
+      )}
+    </div>
+  );
+}
+
 /* ─── Modifier sheet ─────────────────────────────────────────────────
    Bottom sheet on tile tap for dishes that have choices. Big targets, one
    screenful, and a required group blocks Add until it's answered — during a
@@ -127,10 +222,12 @@ function ModifierSheet({
 }) {
   const groups = item.modifierGroups ?? [];
   const [selected, setSelected] = useState<Record<string, string[]>>(() => {
-    // Pre-select the first option of each required single-choice group.
+    // Pre-select the first option of each required single-choice group — the
+    // same seed quick-sale mode applies, kept in one place so the two paths
+    // cannot drift apart.
     const init: Record<string, string[]> = {};
-    for (const g of groups) {
-      if (g.isRequired && g.selection === 'SINGLE' && g.options[0]) init[g.id] = [g.options[0].id];
+    for (const [groupId, option] of Object.entries(defaultOptionByGroup(item))) {
+      init[groupId] = [option.id];
     }
     return init;
   });
@@ -263,25 +360,14 @@ function HeaderClock() {
    Counting a drawer by typing one total invites fat-finger errors and gives
    no way to recheck. Count the notes and coins instead — the total is derived,
    and the breakdown is stored with the shift so a difference can be traced. */
-const GHS_DENOMINATIONS = [200, 100, 50, 20, 10, 5, 2, 1, 0.5, 0.2, 0.1];
-
-const denomLabel = (d: number) => (d >= 1 ? `GH₵${d}` : `${Math.round(d * 100)}p`);
-
 function DenominationCounter({
   counts,
   onChange,
 }: {
-  counts: Record<string, number>;
-  onChange: (next: Record<string, number>) => void;
+  counts: DenominationCounts;
+  onChange: (next: DenominationCounts) => void;
 }) {
-  const bump = (d: number, delta: number) => {
-    const key = String(d);
-    const next = Math.max(0, (counts[key] ?? 0) + delta);
-    const updated = { ...counts };
-    if (next === 0) delete updated[key];
-    else updated[key] = next;
-    onChange(updated);
-  };
+  const bump = (d: number, delta: number) => onChange(bumpDenomination(counts, d, delta));
 
   return (
     <div className="space-y-1.5">
@@ -326,9 +412,6 @@ function DenominationCounter({
   );
 }
 
-function denominationTotal(counts: Record<string, number>) {
-  return Object.entries(counts).reduce((s, [d, q]) => s + Number(d) * q, 0);
-}
 
 /* ─── Receipt Component ─────────────────────────────────────────────── */
 const DELIVERY_LABELS: Record<string, string> = {
@@ -337,7 +420,6 @@ const DELIVERY_LABELS: Record<string, string> = {
 
 function Receipt80mm({
   order,
-  session: posSession,
   businessName = 'JIREH NATURAL FOODS',
   businessPhone = '055 113 3481',
   businessAddress = 'Adenta Housing Down, Accra',
@@ -346,7 +428,6 @@ function Receipt80mm({
   preview = false,
 }: {
   order: any;
-  session: PosSession | null;
   businessName?: string;
   businessPhone?: string;
   businessAddress?: string;
@@ -397,6 +478,11 @@ function Receipt80mm({
       <div className={`${dash} mt-2 pt-1.5 space-y-0.5`}>
         <div className="flex justify-between"><span>Date</span><span>{new Date(order.createdAt).toLocaleString('en-GH', { dateStyle: 'short', timeStyle: 'short' })}</span></div>
         <div className="flex justify-between"><span>Ticket</span><span>{order.orderNumber}</span></div>
+        {/* Only printed when a real name was given — a receipt that says
+            "Walk-in" tells the customer nothing they don't know. */}
+        {cleanName(order.customerName) && (
+          <div className="flex justify-between"><span>Customer</span><span>{cleanName(order.customerName)}</span></div>
+        )}
         {order.staff?.name && <div className="flex justify-between"><span>Served by</span><span>{order.staff.name}</span></div>}
         {order.deliveryType && <div className="flex justify-between"><span>Type</span><span>{DELIVERY_LABELS[order.deliveryType] ?? order.deliveryType}</span></div>}
       </div>
@@ -486,14 +572,118 @@ function Receipt80mm({
   );
 }
 
+/* ─── Shift report (80mm) ────────────────────────────────────────────
+   The same paper twice: mid-shift it is a read-out of where the drawer stands
+   ("Shift so far"); after closing it is the record of what was counted. Both
+   were previously impossible to print — the Print button on the closed-shift
+   summary dumped the on-screen card through the admin A4 stylesheet. */
+function ShiftReport80mm({
+  shift,
+  stats,
+  drawer,
+  movements,
+  counted,
+  closingNote,
+  businessName = 'JIREH NATURAL FOODS',
+  final = false,
+  preview = false,
+}: {
+  shift: PosSession;
+  stats: SessionStats;
+  drawer: { openingFloat: number; cashIn: number; cashOut: number; expected: number };
+  movements: CashMovement[];
+  /** Null while the drawer has not been counted — an X report mid-shift. */
+  counted: number | null;
+  closingNote?: string;
+  businessName?: string;
+  final?: boolean;
+  preview?: boolean;
+}) {
+  const dash = 'border-t border-dashed border-black';
+  const diff = drawerDifference(counted, drawer.expected);
+  const row = (label: string, value: string, bold = false) => (
+    <div className={`flex justify-between ${bold ? 'font-bold' : ''}`}>
+      <span>{label}</span><span>{value}</span>
+    </div>
+  );
+
+  return (
+    <div
+      id={preview ? undefined : 'shift-report-print'}
+      className={
+        preview
+          ? 'print:hidden font-mono text-[11px] leading-tight w-[72mm] mx-auto text-black bg-white rounded-lg px-3 py-4 shadow-[0_2px_12px_rgba(0,0,0,0.45)]'
+          : 'hidden print:block font-mono text-[11px] leading-tight w-[72mm] mx-auto text-black'
+      }
+    >
+      <div className="text-center">
+        <div className="font-bold text-[13px] tracking-wide">{businessName.toUpperCase()}</div>
+        <div className="text-[10px] font-bold">{final ? 'SHIFT REPORT' : 'SHIFT SO FAR'}</div>
+      </div>
+
+      <div className={`${dash} mt-2 pt-1.5 space-y-0.5`}>
+        {row('Opened', new Date(shift.openedAt).toLocaleString('en-GH', { dateStyle: 'short', timeStyle: 'short' }))}
+        {final && row('Closed', new Date().toLocaleString('en-GH', { dateStyle: 'short', timeStyle: 'short' }))}
+        {row('Cashier', shift.openedByUser?.name ?? '—')}
+        {!final && row('Printed', new Date().toLocaleString('en-GH', { dateStyle: 'short', timeStyle: 'short' }))}
+      </div>
+
+      <div className={`${dash} mt-2 pt-1.5 space-y-0.5`}>
+        <div className="font-bold">SALES</div>
+        {row('Cash', formatCurrency(stats.cashRevenue))}
+        {stats.momoRevenue > 0 && row('MoMo', formatCurrency(stats.momoRevenue))}
+        {stats.boltRevenue > 0 && row('Bolt', formatCurrency(stats.boltRevenue))}
+        {row('Total', formatCurrency(stats.revenue), true)}
+      </div>
+
+      {movements.length > 0 && (
+        <div className={`${dash} mt-2 pt-1.5 space-y-0.5`}>
+          <div className="font-bold">CASH IN / OUT</div>
+          {movements.map(m => (
+            <div key={m.id} className="flex justify-between gap-2">
+              <span className="truncate">{m.direction === 'IN' ? '+' : '−'} {m.reason}</span>
+              <span className="shrink-0">{formatCurrency(Number(m.amount))}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className={`${dash} mt-2 pt-1.5 space-y-0.5`}>
+        <div className="font-bold">DRAWER</div>
+        {row('Opening float', formatCurrency(drawer.openingFloat))}
+        {row('Cash sales', `+ ${formatCurrency(stats.cashRevenue)}`)}
+        {drawer.cashIn > 0 && row('Cash in', `+ ${formatCurrency(drawer.cashIn)}`)}
+        {drawer.cashOut > 0 && row('Cash out', `− ${formatCurrency(drawer.cashOut)}`)}
+        {row('Expected in drawer', formatCurrency(drawer.expected), true)}
+        {row('Counted', counted === null ? 'not counted' : formatCurrency(counted))}
+        {row('Difference', differenceLabel(diff, formatCurrency), true)}
+      </div>
+
+      {closingNote?.trim() && (
+        <div className={`${dash} mt-2 pt-1.5`}>
+          <div className="font-bold">NOTE</div>
+          <div className="whitespace-pre-wrap">{closingNote.trim()}</div>
+        </div>
+      )}
+
+      <div className={`${dash} mt-2 pt-1.5 text-center text-[10px]`}>
+        <div>Signature ______________________</div>
+      </div>
+    </div>
+  );
+}
+
 /* ─── Main Page ─────────────────────────────────────────────────────── */
 export default function POSPage() {
+  const router = useRouter();
   const { data: authSession, status: authStatus } = useSession();
   const user = authSession?.user as any;
   const isItAdmin = (user?.email ?? '').toLowerCase() === 'it@jireh.com';
 
   const [categories, setCategories] = useState<MenuCategory[]>([]);
   const [activeCat, setActiveCat] = useState('');
+  /** Showing the 86'd dishes instead of a category, to put them back on. */
+  const [showOffMenu, setShowOffMenu] = useState(false);
   const [search, setSearch] = useState('');
   const [cart, setCart] = useState<CartItem[]>([]);
   const [receiptSettings, setReceiptSettings] = useState({
@@ -503,10 +693,16 @@ export default function POSPage() {
     receiptHeader: 'Fresh & Healthy — Always',
     receiptFooter: 'Thank you for your patronage!',
   });
+  /* Quick-sale mode is the default: a tap puts the dish straight on the
+     ticket. Owner flips this on in Settings when special requests become
+     common enough to justify a sheet on every tap. */
+  const [modifiersEnabled, setModifiersEnabled] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState('CASH');
   const [deliveryType, setDeliveryType] = useState('TAKEAWAY');
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
+  /** Suggestions for the customer field — names this shop has served before. */
+  const [customerMatches, setCustomerMatches] = useState<ComboboxOption[]>([]);
   const [orderNotes, setOrderNotes] = useState('');
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
   const [discountAmount, setDiscountAmount] = useState(0);
@@ -532,10 +728,26 @@ export default function POSPage() {
 
   // Session
   const [posSession, setPosSession] = useState<PosSession | null>(null);
+  /* fetchSession is called from callbacks captured on earlier renders, so it
+     reads the live shift through a ref rather than a stale closure. */
+  const posSessionRef = useRef<PosSession | null>(null);
   const [pendingSession, setPendingSession] = useState<PosSession | null>(null);
   const [registerGate, setRegisterGate] = useState<RegisterGate>('checking');
   const [sessionChecked, setSessionChecked] = useState(false);
   const [sessionStats, setSessionStats] = useState<SessionStats>({ revenue: 0, cashRevenue: 0, momoRevenue: 0, boltRevenue: 0 });
+  /** Cash in/out for the open shift — feeds Expected in drawer. */
+  const [cashMovements, setCashMovements] = useState<CashMovement[]>([]);
+  /** Cash-in/out sheet: null when closed, otherwise the direction being entered. */
+  const [cashSheet, setCashSheet] = useState<'IN' | 'OUT' | null>(null);
+  const [cashAmountStr, setCashAmountStr] = useState('0');
+  const [cashReason, setCashReason] = useState('');
+  const [cashSaving, setCashSaving] = useState(false);
+  /** Note counter opened as its own sheet, so the close screen stays calm. */
+  const [countSheetOpen, setCountSheetOpen] = useState(false);
+  /** Handover note written at close; persisted to PosSession.notes. */
+  const [closingNote, setClosingNote] = useState('');
+  /** Shift report on screen — 'x' mid-shift, 'z' after closing. */
+  const [shiftReport, setShiftReport] = useState<null | 'x'>(null);
   const checkoutClientRef = useRef<string | null>(null);
   const [openingFloatStr, setOpeningFloatStr] = useState('0');
   const [closingCashStr, setClosingCashStr] = useState('0');
@@ -659,6 +871,13 @@ export default function POSPage() {
     }
   };
 
+  /* Refresh shift + revenue figures from the server.
+     This runs after every sale, every ticket settlement and every offline
+     sync, so it must never take a live register away from the cashier. Only
+     three things send someone back through the gate: they have not
+     acknowledged a shift yet, the shift changed underneath them, or the till
+     was closed on another device. A plain figures refresh is never one of
+     them. */
   const fetchSession = async (opts?: { activate?: boolean }) => {
     const res = await fetch('/api/pos/sessions');
     if (res.ok) {
@@ -669,10 +888,20 @@ export default function POSPage() {
         momoRevenue: data.momoRevenue ?? 0,
         boltRevenue: data.boltRevenue ?? 0,
       });
+      setCashMovements(Array.isArray(data.cashMovements) ? data.cashMovements : []);
+      // IT admin runs in demo mode and never holds a shift — refreshing the
+      // figures must not pull the register out from under it either.
+      if (isItAdmin) { setSessionChecked(true); return; }
       if (data.session) {
         setPendingSession(data.session);
         const stale = data.isStale ?? classifyRegisterSession(data.session.openedAt) === 'stale';
-        if (opts?.activate) {
+        // In-memory check covers this page load; the stored ack survives a
+        // reload or PWA relaunch mid-shift.
+        const acknowledged =
+          posSessionRef.current?.id === data.session.id ||
+          readShiftAck(userId) === data.session.id;
+        if (opts?.activate || acknowledged) {
+          writeShiftAck(data.session.id, userId);
           setPosSession(data.session);
           setRegisterGate('active');
         } else {
@@ -680,6 +909,9 @@ export default function POSPage() {
           setRegisterGate(stale ? 'stale' : 'continue');
         }
       } else {
+        // Till closed — here or on another device. Dropping the register is
+        // correct; clear the ack so the next shift is acknowledged afresh.
+        clearShiftAck(userId);
         setPendingSession(null);
         setPosSession(null);
         setRegisterGate('open_new');
@@ -690,6 +922,7 @@ export default function POSPage() {
 
   const activateRegister = () => {
     if (!pendingSession) return;
+    writeShiftAck(pendingSession.id, userId);
     setPosSession(pendingSession);
     setRegisterGate('active');
     setView('register');
@@ -718,6 +951,7 @@ export default function POSPage() {
         });
         // Keep the register's arithmetic identical to the server's.
         setTaxRate(Number(data.tax_rate ?? 0) || 0);
+        setModifiersEnabled(data.pos_modifiers_enabled === true);
       })
       .catch(() => {});
   }, [authStatus]);
@@ -735,6 +969,31 @@ export default function POSPage() {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authStatus, isItAdmin]);
+
+  useEffect(() => { posSessionRef.current = posSession; }, [posSession]);
+
+  /* Customer suggestions. Debounced so a fast typist does not fire a request
+     per keystroke, and aborted on change so a slow earlier response can never
+     overwrite the list for what is now in the box. A failure is silent — the
+     cashier types the name either way. */
+  useEffect(() => {
+    if (authStatus !== 'authenticated') return;
+    const controller = new AbortController();
+    const t = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/pos/customers?q=${encodeURIComponent(customerName)}`, {
+          signal: controller.signal,
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!Array.isArray(data)) return;
+        setCustomerMatches(
+          data.map((c: any) => ({ id: c.id, label: c.name, sub: c.phone })),
+        );
+      } catch { /* aborted or offline — suggestions are optional */ }
+    }, 180);
+    return () => { clearTimeout(t); controller.abort(); };
+  }, [customerName, authStatus]);
 
   useEffect(() => {
     if (sessionChecked && authSession?.user && registerGate === 'active') { fetchOrders(); fetchOpenTickets(); }
@@ -888,6 +1147,41 @@ export default function POSPage() {
     }
   };
 
+  /* Record money in or out of the drawer. Refreshes the shift afterwards so
+     Expected in drawer moves immediately — a cashier who logs a payout and
+     sees no change will assume it did not save and log it twice. */
+  const recordCashMovement = async () => {
+    const active = posSession ?? pendingSession;
+    const amount = parseFloat(cashAmountStr) || 0;
+    if (!active || !cashSheet) return;
+    if (amount <= 0) { alert('Enter an amount greater than zero.'); return; }
+    if (!cashReason.trim()) { alert('Say what the money was for.'); return; }
+
+    setCashSaving(true);
+    try {
+      const res = await fetch('/api/pos/cash-movements', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sessionId: active.id, direction: cashSheet, amount, reason: cashReason.trim(),
+        }),
+      });
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}));
+        alert(e.error || 'Could not record that.');
+        return;
+      }
+      await fetchSession();
+      setCashSheet(null);
+      setCashAmountStr('0');
+      setCashReason('');
+    } catch {
+      alert('Could not reach the server. Try again when you are back online.');
+    } finally {
+      setCashSaving(false);
+    }
+  };
+
   // Session actions
   const openSession = async (forceCloseStale = false) => {
     setSessionLoading(true);
@@ -919,7 +1213,13 @@ export default function POSPage() {
       : (parseFloat(closingCashStr) || 0);
 
     if (!skipConfirm) {
-      const expectedCash = Number(active.openingFloat) + sessionStats.cashRevenue;
+      // Shared helper, so the figure the cashier is challenged on is the same
+      // one the server and the owner's report will show.
+      const expectedCash = drawerTotals({
+        openingFloat: active.openingFloat,
+        cashRevenue: sessionStats.cashRevenue,
+        movements: cashMovements,
+      }).expected;
       const cashDisc  = countedCash - expectedCash;
       const momoDisc  = (parseFloat(closingMomoStr) || 0) - sessionStats.momoRevenue;
       const boltDisc  = (parseFloat(closingBoltStr) || 0) - sessionStats.boltRevenue;
@@ -929,8 +1229,10 @@ export default function POSPage() {
         if (Math.abs(cashDisc) > 0.01)  lines.push(`Cash: ${cashDisc > 0 ? '+' : ''}GH₵${cashDisc.toFixed(2)}`);
         if (Math.abs(momoDisc) > 0.01)  lines.push(`MoMo: ${momoDisc > 0 ? '+' : ''}GH₵${momoDisc.toFixed(2)}`);
         if (Math.abs(boltDisc) > 0.01)  lines.push(`Bolt: ${boltDisc > 0 ? '+' : ''}GH₵${boltDisc.toFixed(2)}`);
+        /* "Difference", never "variance" — the copy bank is explicit, and a
+           cashier being asked to explain money should read plain words. */
         const confirmed = window.confirm(
-          `⚠ Discrepancy detected:\n${lines.join('\n')}\n\nDouble-check your counts, or tap OK to close anyway.`
+          `Difference found:\n${lines.join('\n')}\n\nCount again if you can. Tap OK to close with these figures.`
         );
         if (!confirmed) return;
       }
@@ -947,16 +1249,20 @@ export default function POSPage() {
           closingMomo: parseFloat(closingMomoStr) || 0,
           closingBolt: parseFloat(closingBoltStr) || 0,
           cashCount: countMode === 'notes' && Object.keys(cashCounts).length > 0 ? cashCounts : null,
+          notes: closingNote.trim() || null,
         }),
       });
       if (res.ok) {
         const data = await res.json();
         setClosingSummary(data.summary);
+        clearShiftAck(userId);
         setPosSession(null);
         setPendingSession(null);
         setRegisterGate('open_new');
         setSessionStats({ revenue: 0, cashRevenue: 0, momoRevenue: 0, boltRevenue: 0 });
         setCashCounts({});
+        setCashMovements([]);
+        setClosingNote('');
         setClosingCashStr('0');
         setClosingMomoStr('0');
         setClosingBoltStr('0');
@@ -967,9 +1273,22 @@ export default function POSPage() {
     } finally { setSessionLoading(false); }
   };
 
+  /* An 86'd dish is off the register, not greyed on it. Leaving sold-out tiles
+     in the grid during a rush means the cashier reads and rejects them on
+     every sale. They collect behind the "Off menu" chip instead, which is
+     also where they are put back on — so nothing is lost, it is just out of
+     the way of selling. */
+  const sellable = (items: MenuItem[]) => items.filter(i => i.isAvailable !== false);
+  const offMenuItems = categories.flatMap(c => c.items).filter(i => i.isAvailable === false);
+  /* Falls back on its own once the last dish is restored, so the chip can
+     never leave the cashier staring at an empty grid. */
+  const viewingOffMenu = showOffMenu && offMenuItems.length > 0;
+
   const filteredItems = search.trim()
-    ? categories.flatMap(c => c.items).filter(i => i.name.toLowerCase().includes(search.toLowerCase()))
-    : categories.find(c => c.id === activeCat)?.items ?? [];
+    ? sellable(categories.flatMap(c => c.items)).filter(i => i.name.toLowerCase().includes(search.toLowerCase()))
+    : viewingOffMenu
+      ? offMenuItems
+      : sellable(categories.find(c => c.id === activeCat)?.items ?? []);
 
   /* ─── 86 board ────────────────────────────────────────────────────────
      Long-press a tile to take a dish off the menu the moment the kitchen runs
@@ -1128,7 +1447,6 @@ export default function POSPage() {
               <Receipt80mm
                 preview
                 order={lastOrder}
-                session={posSession}
                 businessName={receiptSettings.businessName}
                 businessPhone={receiptSettings.businessPhone}
                 businessAddress={receiptSettings.businessAddress}
@@ -1146,7 +1464,7 @@ export default function POSPage() {
             )}
             <button onClick={() => setLastOrder(null)}
               className="flex-1 bg-[#349f2d] hover:bg-[#287e22] text-white rounded-2xl py-3 font-semibold text-sm transition-colors">
-              New Order
+              New Sale
             </button>
           </div>
         </div>
@@ -1154,7 +1472,6 @@ export default function POSPage() {
         {!isOfflineOrder && (
           <Receipt80mm
             order={lastOrder}
-            session={posSession}
             businessName={receiptSettings.businessName}
             businessPhone={receiptSettings.businessPhone}
             businessAddress={receiptSettings.businessAddress}
@@ -1244,7 +1561,6 @@ export default function POSPage() {
     );
   }
 
-  const isAdminRole = ['OWNER', 'MANAGER', 'ACCOUNTANT'].includes(user?.role ?? '');
   /* Mirrors ANY_POS_USER_MAY_CLOSE_ANY_SHIFT in app/api/pos/sessions/route.ts —
      the whole team shares one register, so anyone at the POS can resolve a
      shift left open from a previous day. Keep both flags in step. */
@@ -1260,7 +1576,7 @@ export default function POSPage() {
           <span className="text-sm font-semibold text-[#f4efeb]">Jireh POS</span>
         </div>
         <div className="flex items-center gap-1.5">
-          {isAdminRole && (
+          {isAdminRole(user?.role) && (
             <Link href="/admin" className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-medium text-[#aba8a4] border border-[#2b2f2b] hover:border-[#404540] hover:text-[#f4efeb] transition">
               <LayoutDashboard size={12}/> Admin Panel
             </Link>
@@ -1540,13 +1856,13 @@ export default function POSPage() {
             );
           })()}
 
-          {/* Customer */}
-          <div className="grid grid-cols-2 gap-2">
-            <input value={customerName} onChange={e => setCustomerName(e.target.value)} placeholder="Customer name"
-              className="bg-[#191c19] border border-[#2b2f2b] rounded-xl px-3 py-2 text-xs text-[#f4efeb] placeholder:text-[#aba8a4]/60 focus:outline-none focus:border-[#349f2d]" />
-            <input value={customerPhone} onChange={e => setCustomerPhone(e.target.value)} placeholder="Phone (optional)"
-              className="bg-[#191c19] border border-[#2b2f2b] rounded-xl px-3 py-2 text-xs text-[#f4efeb] placeholder:text-[#aba8a4]/60 focus:outline-none focus:border-[#349f2d]" />
-          </div>
+          {/* Customer — same bound state as the cart panel, so a name attached
+              before charging is still here, and can still be added now. */}
+          <CustomerFields
+            name={customerName} onName={setCustomerName}
+            phone={customerPhone} onPhone={setCustomerPhone}
+            matches={customerMatches}
+          />
         </div>
 
         <div className="shrink-0 p-4 border-t border-[#2b2f2b] bg-[#0a0b0a]">
@@ -1558,6 +1874,151 @@ export default function POSPage() {
       </div>
     );
   }
+
+  /* Drawer overlays. Defined once and rendered by both the register and the
+     session view: the close screen is its own early return, so a sheet mounted
+     only in the register JSX silently does nothing when opened from there. */
+  const drawerOverlays = (
+    <>
+        {/* Note counter as its own sheet. On the close screen the drawer count
+            is one field and one button; the grid of eleven denominations lives
+            here, so that screen stays readable. */}
+        {countSheetOpen && (
+          <div className="fixed inset-0 z-[70] flex items-end justify-center sm:items-center">
+            <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setCountSheetOpen(false)} />
+            <div className="relative flex max-h-[88vh] w-full flex-col rounded-t-3xl border-t border-[#2b2f2b] bg-[#191c19] pb-[env(safe-area-inset-bottom)] sm:max-w-md sm:rounded-3xl sm:border">
+              <div className="shrink-0 border-b border-[#2b2f2b] px-5 py-4">
+                <p className="text-base font-bold text-[#f4efeb]">Count the drawer</p>
+                <p className="mt-0.5 text-xs text-[#aba8a4]">Tap + for each note and coin. The total adds itself up.</p>
+              </div>
+              <div className="flex-1 overflow-y-auto px-5 py-4">
+                <DenominationCounter counts={cashCounts} onChange={setCashCounts} />
+              </div>
+              <div className="shrink-0 space-y-2 border-t border-[#2b2f2b] px-5 py-4">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-[#aba8a4]">Counted</span>
+                  <span className="font-mono text-xl font-black tabular-nums text-[#f4efeb]">
+                    {formatCurrency(denominationTotal(cashCounts))}
+                  </span>
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={() => setCashCounts({})}
+                    className="min-h-[48px] flex-1 rounded-xl border border-[#2b2f2b] text-sm font-semibold text-[#aba8a4]">
+                    Start again
+                  </button>
+                  <button onClick={() => setCountSheetOpen(false)}
+                    className="min-h-[48px] flex-[1.4] rounded-xl bg-[#349f2d] text-sm font-bold text-white">
+                    Done
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Cash in / out */}
+        {cashSheet && (
+          <div className="fixed inset-0 z-[70] flex items-end justify-center sm:items-center">
+            <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={() => !cashSaving && setCashSheet(null)} />
+            <div className="relative flex max-h-[88vh] w-full flex-col rounded-t-3xl border-t border-[#2b2f2b] bg-[#191c19] pb-[env(safe-area-inset-bottom)] sm:max-w-md sm:rounded-3xl sm:border">
+              <div className="shrink-0 border-b border-[#2b2f2b] px-5 py-4">
+                <p className="text-base font-bold text-[#f4efeb]">
+                  {cashSheet === 'IN' ? 'Cash into the drawer' : 'Cash out of the drawer'}
+                </p>
+                <p className="mt-0.5 text-xs text-[#aba8a4]">
+                  {cashSheet === 'IN'
+                    ? 'Money added that is not a sale — change brought in, a float top-up.'
+                    : 'Money taken out that is not change — gas, a supplier, the owner.'}
+                </p>
+              </div>
+              <div className="flex-1 space-y-3 overflow-y-auto px-5 py-4">
+                <p className="text-center font-mono text-3xl font-black tabular-nums text-[#f4efeb]">
+                  {formatCurrency(parseFloat(cashAmountStr) || 0)}
+                </p>
+                <Numpad value={cashAmountStr} onChange={setCashAmountStr} />
+                <div>
+                  <p className="mb-1.5 text-[11px] font-medium text-[#aba8a4]">What was it for?</p>
+                  <input
+                    value={cashReason}
+                    onChange={e => setCashReason(e.target.value)}
+                    placeholder="Required"
+                    className="w-full rounded-xl border border-[#2b2f2b] bg-[#111311] px-3 py-2.5 text-sm text-[#f4efeb] placeholder:text-[#5f635f] focus:border-[#349f2d] focus:outline-none"
+                  />
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {(cashSheet === 'OUT'
+                      ? ['Bought gas', 'Owner took cash', 'Paid supplier', 'Bought ingredients']
+                      : ['Change for drawer', 'Float top-up']
+                    ).map(r => (
+                      <button key={r} onClick={() => setCashReason(r)}
+                        className="rounded-lg border border-[#2b2f2b] px-2.5 py-1.5 text-[11px] text-[#aba8a4] hover:text-[#f4efeb]">
+                        {r}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+              <div className="shrink-0 flex gap-2 border-t border-[#2b2f2b] px-5 py-4">
+                <button onClick={() => setCashSheet(null)} disabled={cashSaving}
+                  className="min-h-[48px] flex-1 rounded-xl border border-[#2b2f2b] text-sm font-semibold text-[#aba8a4]">
+                  Cancel
+                </button>
+                <button onClick={recordCashMovement} disabled={cashSaving}
+                  className="min-h-[48px] flex-[1.4] rounded-xl bg-[#349f2d] text-sm font-bold text-white disabled:opacity-40">
+                  {cashSaving ? 'Saving…' : 'Record'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Shift report — read on screen, or print the same 80mm paper */}
+        {shiftReport && (posSession ?? pendingSession) && (
+          <div className="fixed inset-0 z-[70] flex items-end justify-center sm:items-center">
+            <div className="absolute inset-0 bg-black/70 backdrop-blur-sm print:hidden" onClick={() => setShiftReport(null)} />
+            <div className="relative flex max-h-[90vh] w-full flex-col rounded-t-3xl border-t border-[#2b2f2b] bg-[#191c19] pb-[env(safe-area-inset-bottom)] sm:max-w-md sm:rounded-3xl sm:border print:contents">
+              <div className="shrink-0 border-b border-[#2b2f2b] px-5 py-4 print:hidden">
+                <p className="text-base font-bold text-[#f4efeb]">Shift so far</p>
+              </div>
+              <div className="flex-1 overflow-y-auto p-4">
+                {(() => {
+                  const shift = (posSession ?? pendingSession)!;
+                  const drawer = drawerTotals({
+                    openingFloat: shift.openingFloat,
+                    cashRevenue: sessionStats.cashRevenue,
+                    movements: cashMovements,
+                  });
+                  const counted = Object.keys(cashCounts).length > 0 ? denominationTotal(cashCounts) : null;
+                  return (
+                    <>
+                      <ShiftReport80mm
+                        preview shift={shift} stats={sessionStats} drawer={drawer}
+                        movements={cashMovements} counted={counted}
+                        closingNote={closingNote} businessName={receiptSettings.businessName}
+                      />
+                      <ShiftReport80mm
+                        shift={shift} stats={sessionStats} drawer={drawer}
+                        movements={cashMovements} counted={counted}
+                        closingNote={closingNote} businessName={receiptSettings.businessName}
+                      />
+                    </>
+                  );
+                })()}
+              </div>
+              <div className="shrink-0 flex gap-2 border-t border-[#2b2f2b] px-5 py-4 print:hidden">
+                <button onClick={() => setShiftReport(null)}
+                  className="min-h-[48px] flex-1 rounded-xl border border-[#2b2f2b] text-sm font-semibold text-[#aba8a4]">
+                  Close
+                </button>
+                <button onClick={() => window.print()}
+                  className="min-h-[48px] flex-[1.4] rounded-xl bg-[#349f2d] text-sm font-bold text-white">
+                  Print
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+    </>
+  );
 
   /* ─── Session management view ──────────────────────────────────────── */
   if (view === 'session') {
@@ -1589,105 +2050,227 @@ export default function POSPage() {
                   </div>
                 </div>
               </div>
-              {/* Shift reconciliation — one section per payment method */}
+              {/* Close the shift — one row per tender, PrimeTijara style.
+                  Each row shows how the expected figure was arrived at, so a
+                  cashier can see that the GH₵50 of gas they logged is already
+                  accounted for rather than wondering why they are short.
+                  Note counting lives in its own sheet: on this screen it is
+                  one field, or the whole thing becomes a wall of buttons. */}
               {(() => {
-                const expectedCash = Number(shiftSession.openingFloat) + sessionStats.cashRevenue;
+                const drawer = drawerTotals({
+                  openingFloat: shiftSession.openingFloat,
+                  cashRevenue: sessionStats.cashRevenue,
+                  movements: cashMovements,
+                });
+                /* Untouched means untouched. Showing a huge red difference the
+                   moment the screen opens — as PrimeTijara does — teaches
+                   people to ignore the one number that matters. */
+                const cashTouched = countMode === 'notes'
+                  ? Object.keys(cashCounts).length > 0
+                  : closingCashStr !== '' && closingCashStr !== '0';
                 const countedCash = countMode === 'notes'
                   ? denominationTotal(cashCounts)
                   : (parseFloat(closingCashStr) || 0);
-                const cashDisc = countedCash - expectedCash;
-                const momoDisc = (parseFloat(closingMomoStr) || 0) - sessionStats.momoRevenue;
-                const boltDisc = (parseFloat(closingBoltStr) || 0) - sessionStats.boltRevenue;
-                const discColor = (d: number) => Math.abs(d) < 0.01 ? 'text-[#5ecf4f]' : d > 0 ? 'text-blue-400' : 'text-red-400';
-                const discLabel = (d: number) => Math.abs(d) < 0.01 ? 'Exact ✓' : `${d > 0 ? '+' : ''}GH₵${Math.abs(d).toFixed(2)} ${d > 0 ? 'over' : 'short'}`;
+                const cashDiff = drawerDifference(cashTouched ? countedCash : null, drawer.expected);
+
+                const momoTouched = closingMomoStr !== '' && closingMomoStr !== '0';
+                const boltTouched = closingBoltStr !== '' && closingBoltStr !== '0';
+                const momoDiff = drawerDifference(momoTouched ? parseFloat(closingMomoStr) || 0 : null, sessionStats.momoRevenue);
+                const boltDiff = drawerDifference(boltTouched ? parseFloat(closingBoltStr) || 0 : null, sessionStats.boltRevenue);
+
+                const diffTone = (d: number | null) =>
+                  d === null ? 'text-[#aba8a4]'
+                    : Math.abs(d) < 0.01 ? 'text-[#5ecf4f]'
+                    : d > 0 ? 'text-blue-400' : 'text-red-400';
+
+                const totalDiff = [cashDiff, momoDiff, boltDiff]
+                  .filter((d): d is number => d !== null)
+                  .reduce((a, b) => a + b, 0);
+                const anythingCounted = [cashDiff, momoDiff, boltDiff].some(d => d !== null);
+
                 return (
                   <div className="space-y-3">
-                    {/* Summary row */}
-                    <div className="bg-[#111311] rounded-xl p-3 grid grid-cols-3 gap-2 text-center">
-                      <div><p className="text-[10px] text-[#aba8a4] uppercase tracking-wide">Cash sales</p><p className="text-sm font-bold text-[#f4efeb]">{formatCurrency(sessionStats.cashRevenue)}</p></div>
-                      <div><p className="text-[10px] text-[#aba8a4] uppercase tracking-wide">MoMo sales</p><p className="text-sm font-bold text-[#f4efeb]">{formatCurrency(sessionStats.momoRevenue)}</p></div>
-                      <div><p className="text-[10px] text-[#aba8a4] uppercase tracking-wide">Bolt sales</p><p className="text-sm font-bold text-[#f4efeb]">{formatCurrency(sessionStats.boltRevenue)}</p></div>
-                    </div>
-
-                    {/* Cash — count the drawer by denomination, or type a total */}
-                    <div className="bg-[#191c19] border border-[#2b2f2b] rounded-2xl p-4 space-y-3">
-                      <div className="flex items-center justify-between gap-2">
-                        <p className="text-sm font-semibold text-[#f4efeb]">💵 Count the drawer</p>
-                        <div className="flex rounded-lg border border-[#2b2f2b] p-0.5">
-                          {(['notes', 'total'] as const).map(m => (
-                            <button
-                              key={m}
-                              onClick={() => setCountMode(m)}
-                              className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition-colors ${
-                                countMode === m ? 'bg-[#349f2d] text-white' : 'text-[#aba8a4]'
-                              }`}
-                            >
-                              {m === 'notes' ? 'Count notes' : 'Type total'}
-                            </button>
-                          ))}
+                    {/* ── Cash ── */}
+                    <div className="rounded-2xl border border-[#2b2f2b] bg-[#191c19] p-4 space-y-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="text-sm font-semibold text-[#f4efeb]">Cash</p>
+                          {/* The running sum: where "expected" comes from. */}
+                          <p className="mt-0.5 text-[11px] leading-relaxed text-[#aba8a4]">
+                            Float {formatCurrency(drawer.openingFloat)}
+                            {' · '}Sales + {formatCurrency(drawer.cashRevenue)}
+                            {drawer.cashIn > 0 && <> {' · '}In + {formatCurrency(drawer.cashIn)}</>}
+                            {drawer.cashOut > 0 && <> {' · '}Out − {formatCurrency(drawer.cashOut)}</>}
+                          </p>
                         </div>
+                        <p className="shrink-0 text-right font-mono text-base font-bold tabular-nums text-[#f4efeb]">
+                          {formatCurrency(drawer.expected)}
+                        </p>
                       </div>
 
                       <div className="grid grid-cols-3 gap-2 rounded-xl bg-[#111311] p-3 text-center">
                         <div>
                           <p className="text-[10px] uppercase tracking-wide text-[#aba8a4]">Expected in drawer</p>
-                          <p className="font-mono text-sm font-bold tabular-nums text-[#f4efeb]">{formatCurrency(expectedCash)}</p>
+                          <p className="font-mono text-sm font-bold tabular-nums text-[#f4efeb]">{formatCurrency(drawer.expected)}</p>
                         </div>
                         <div>
                           <p className="text-[10px] uppercase tracking-wide text-[#aba8a4]">Counted</p>
-                          <p className="font-mono text-sm font-bold tabular-nums text-[#f4efeb]">{formatCurrency(countedCash)}</p>
+                          <p className="font-mono text-sm font-bold tabular-nums text-[#f4efeb]">
+                            {cashTouched ? formatCurrency(countedCash) : '—'}
+                          </p>
                         </div>
                         <div>
                           <p className="text-[10px] uppercase tracking-wide text-[#aba8a4]">Difference</p>
-                          <p className={`font-mono text-sm font-bold tabular-nums ${discColor(cashDisc)}`}>
-                            {Math.abs(cashDisc) < 0.01 ? 'Exact' : `${cashDisc > 0 ? '+' : '−'}${formatCurrency(Math.abs(cashDisc))}`}
+                          <p className={`font-mono text-sm font-bold tabular-nums ${diffTone(cashDiff)}`}>
+                            {cashDiff === null ? '—' : differenceLabel(cashDiff, formatCurrency)}
                           </p>
                         </div>
                       </div>
-                      <p className="text-[11px] text-[#aba8a4]">
-                        Float {formatCurrency(shiftSession.openingFloat)} + {formatCurrency(sessionStats.cashRevenue)} cash sales
-                      </p>
 
-                      {countMode === 'notes' ? (
-                        <DenominationCounter counts={cashCounts} onChange={setCashCounts} />
-                      ) : (
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => { setCountMode('notes'); setCountSheetOpen(true); }}
+                          className="flex-1 min-h-[46px] rounded-xl border border-[#349f2d]/40 bg-[#349f2d]/10 text-sm font-semibold text-[#5ecf4f] transition active:scale-[0.98]"
+                        >
+                          Count notes
+                        </button>
+                        <button
+                          onClick={() => setCountMode('total')}
+                          className={`flex-1 min-h-[46px] rounded-xl border text-sm font-semibold transition ${
+                            countMode === 'total'
+                              ? 'border-[#349f2d]/40 bg-[#349f2d]/10 text-[#5ecf4f]'
+                              : 'border-[#2b2f2b] text-[#aba8a4]'
+                          }`}
+                        >
+                          Type total
+                        </button>
+                      </div>
+
+                      {countMode === 'total' && (
                         <>
-                          <p className="text-2xl font-black tabular-nums text-[#f4efeb]">{formatCurrency(parseFloat(closingCashStr) || 0)}</p>
+                          <p className="text-center font-mono text-2xl font-black tabular-nums text-[#f4efeb]">
+                            {formatCurrency(parseFloat(closingCashStr) || 0)}
+                          </p>
                           <Numpad value={closingCashStr} onChange={setClosingCashStr}/>
                         </>
                       )}
+
+                      {countMode === 'notes' && Object.keys(cashCounts).length > 0 && (
+                        <p className="text-center text-[11px] text-[#aba8a4]">
+                          {Object.values(cashCounts).reduce((a, b) => a + b, 0)} notes and coins counted ·{' '}
+                          <button onClick={() => setCountSheetOpen(true)} className="underline">recount</button>
+                        </p>
+                      )}
                     </div>
 
-                    {/* MoMo */}
+                    {/* ── MoMo ── only when the shift took any */}
                     {sessionStats.momoRevenue > 0 && (
-                      <div className="bg-[#191c19] border border-[#2b2f2b] rounded-2xl p-4 space-y-2">
-                        <div className="flex items-center justify-between">
-                          <p className="text-sm font-semibold text-[#f4efeb]">📱 MoMo Received</p>
-                          <span className={`text-xs font-bold ${discColor(momoDisc)}`}>{discLabel(momoDisc)}</span>
+                      <div className="rounded-2xl border border-[#2b2f2b] bg-[#191c19] p-4 space-y-2">
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <p className="text-sm font-semibold text-[#f4efeb]">MoMo</p>
+                            <p className="mt-0.5 text-[11px] text-[#aba8a4]">Payments + {formatCurrency(sessionStats.momoRevenue)}</p>
+                          </div>
+                          <span className={`shrink-0 text-xs font-bold ${diffTone(momoDiff)}`}>
+                            {momoDiff === null ? 'Not counted yet' : differenceLabel(momoDiff, formatCurrency)}
+                          </span>
                         </div>
-                        <p className="text-xs text-[#aba8a4]">Expected: {formatCurrency(sessionStats.momoRevenue)}</p>
-                        <p className="text-2xl font-black text-[#f4efeb] tabular-nums">{formatCurrency(parseFloat(closingMomoStr) || 0)}</p>
+                        <p className="text-center font-mono text-2xl font-black tabular-nums text-[#f4efeb]">
+                          {formatCurrency(parseFloat(closingMomoStr) || 0)}
+                        </p>
                         <Numpad value={closingMomoStr} onChange={setClosingMomoStr}/>
                       </div>
                     )}
 
-                    {/* Bolt */}
+                    {/* ── Bolt ── */}
                     {sessionStats.boltRevenue > 0 && (
-                      <div className="bg-[#191c19] border border-[#2b2f2b] rounded-2xl p-4 space-y-2">
-                        <div className="flex items-center justify-between">
-                          <p className="text-sm font-semibold text-[#f4efeb]">⚡ Bolt Received</p>
-                          <span className={`text-xs font-bold ${discColor(boltDisc)}`}>{discLabel(boltDisc)}</span>
+                      <div className="rounded-2xl border border-[#2b2f2b] bg-[#191c19] p-4 space-y-2">
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <p className="text-sm font-semibold text-[#f4efeb]">Bolt</p>
+                            <p className="mt-0.5 text-[11px] text-[#aba8a4]">Payments + {formatCurrency(sessionStats.boltRevenue)}</p>
+                          </div>
+                          <span className={`shrink-0 text-xs font-bold ${diffTone(boltDiff)}`}>
+                            {boltDiff === null ? 'Not counted yet' : differenceLabel(boltDiff, formatCurrency)}
+                          </span>
                         </div>
-                        <p className="text-xs text-[#aba8a4]">Expected: {formatCurrency(sessionStats.boltRevenue)}</p>
-                        <p className="text-2xl font-black text-[#f4efeb] tabular-nums">{formatCurrency(parseFloat(closingBoltStr) || 0)}</p>
+                        <p className="text-center font-mono text-2xl font-black tabular-nums text-[#f4efeb]">
+                          {formatCurrency(parseFloat(closingBoltStr) || 0)}
+                        </p>
                         <Numpad value={closingBoltStr} onChange={setClosingBoltStr}/>
                       </div>
                     )}
 
-                    <button onClick={() => closeSession()} disabled={sessionLoading}
-                      className="w-full bg-red-600 hover:bg-red-700 disabled:opacity-40 text-white rounded-xl py-3 font-semibold text-sm transition-colors">
-                      {sessionLoading ? 'Closing…' : 'Close Shift'}
-                    </button>
+                    {/* ── Cash in / out log ── */}
+                    <div className="rounded-2xl border border-[#2b2f2b] bg-[#191c19] p-4 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <p className="text-sm font-semibold text-[#f4efeb]">Cash in / out</p>
+                        <div className="flex gap-1.5">
+                          <button onClick={() => { setCashSheet('IN'); setCashAmountStr('0'); setCashReason(''); }}
+                            className="rounded-lg border border-[#2b2f2b] px-2.5 py-1.5 text-[11px] font-semibold text-[#5ecf4f]">
+                            + In
+                          </button>
+                          <button onClick={() => { setCashSheet('OUT'); setCashAmountStr('0'); setCashReason(''); }}
+                            className="rounded-lg border border-[#2b2f2b] px-2.5 py-1.5 text-[11px] font-semibold text-yellow-400">
+                            − Out
+                          </button>
+                        </div>
+                      </div>
+                      {cashMovements.length === 0 ? (
+                        <p className="text-[11px] text-[#aba8a4]">
+                          Nothing recorded. Log it here whenever money leaves or joins the drawer without being a sale.
+                        </p>
+                      ) : (
+                        <div className="space-y-1">
+                          {cashMovements.map(m => (
+                            <div key={m.id} className="flex items-center justify-between gap-2 rounded-lg bg-[#111311] px-3 py-2">
+                              <div className="min-w-0">
+                                <p className="truncate text-xs text-[#f4efeb]">{m.reason}</p>
+                                <p className="text-[10px] text-[#aba8a4]">{m.user?.name ?? '—'}</p>
+                              </div>
+                              <span className={`shrink-0 font-mono text-xs font-bold tabular-nums ${m.direction === 'IN' ? 'text-[#5ecf4f]' : 'text-yellow-400'}`}>
+                                {m.direction === 'IN' ? '+' : '−'}{formatCurrency(Number(m.amount))}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* ── Total difference ── the roll-up, in plain words */}
+                    <div className="flex items-center justify-between rounded-2xl border border-[#2b2f2b] bg-[#111311] px-4 py-3">
+                      <span className="text-sm font-semibold text-[#f4efeb]">Total difference</span>
+                      <span className={`font-mono text-sm font-bold tabular-nums ${anythingCounted ? diffTone(totalDiff) : 'text-[#aba8a4]'}`}>
+                        {anythingCounted ? differenceLabel(totalDiff, formatCurrency) : 'Not counted yet'}
+                      </span>
+                    </div>
+
+                    {/* ── Handover note ── */}
+                    <div className="rounded-2xl border border-[#2b2f2b] bg-[#191c19] p-4 space-y-2">
+                      <p className="text-sm font-semibold text-[#f4efeb]">Closing note</p>
+                      <textarea
+                        value={closingNote}
+                        onChange={e => setClosingNote(e.target.value)}
+                        rows={2}
+                        placeholder="Anything the next person should know…"
+                        className="w-full resize-none rounded-xl border border-[#2b2f2b] bg-[#111311] px-3 py-2.5 text-sm text-[#f4efeb] placeholder:text-[#5f635f] focus:border-[#349f2d] focus:outline-none"
+                      />
+                    </div>
+
+                    <div className="flex gap-2">
+                      <button onClick={() => setView('register')}
+                        className="min-h-[48px] flex-1 rounded-xl border border-[#2b2f2b] text-sm font-semibold text-[#aba8a4] transition hover:text-[#f4efeb]">
+                        Not yet
+                      </button>
+                      <button onClick={() => setShiftReport('x')}
+                        className="min-h-[48px] flex-1 rounded-xl border border-[#2b2f2b] text-sm font-semibold text-[#aba8a4] transition hover:text-[#f4efeb]">
+                        Print summary
+                      </button>
+                      <button onClick={() => closeSession()} disabled={sessionLoading}
+                        className="min-h-[48px] flex-[1.4] rounded-xl bg-red-600 text-sm font-bold text-white transition hover:bg-red-700 disabled:opacity-40">
+                        {sessionLoading ? 'Closing…' : 'Close Shift'}
+                      </button>
+                    </div>
                   </div>
                 );
               })()}
@@ -1709,9 +2292,93 @@ export default function POSPage() {
             </div>
           )}
         </div>
+        {drawerOverlays}
       </div>
     );
   }
+
+  /* Register overflow menu. One list, both breakpoints, and the only place a
+     cashier has to look for something that is not a menu tile. Items that need
+     an open shift are disabled rather than hidden, so their absence is never
+     mistaken for the feature not existing. */
+  const hasShift = !!(posSession ?? pendingSession);
+  const registerMenuItems: ActionMenuItem[] = [
+    {
+      id: 'shift-sales',
+      label: 'Shift sales',
+      hint: hasShift ? 'View and print' : 'No shift open',
+      icon: <Receipt size={15} />,
+      disabled: !hasShift,
+      onSelect: () => setShiftReport('x'),
+    },
+    {
+      id: 'count-drawer',
+      label: 'Count the drawer',
+      hint: 'Without closing the shift',
+      icon: <Calculator size={15} />,
+      disabled: !hasShift,
+      onSelect: () => { setCountMode('notes'); setCountSheetOpen(true); },
+    },
+    {
+      id: 'cash-in',
+      label: 'Cash in',
+      hint: 'Not a sale',
+      icon: <Plus size={15} />,
+      disabled: !hasShift,
+      onSelect: () => { setCashSheet('IN'); setCashAmountStr('0'); setCashReason(''); },
+    },
+    {
+      id: 'cash-out',
+      label: 'Cash out',
+      hint: 'Gas, supplier, owner',
+      icon: <Minus size={15} />,
+      disabled: !hasShift,
+      onSelect: () => { setCashSheet('OUT'); setCashAmountStr('0'); setCashReason(''); },
+    },
+    {
+      id: 'orders',
+      label: "Today's orders",
+      icon: <Clock size={15} />,
+      separated: true,
+      onSelect: () => { setView('orders'); fetchOrders(); },
+    },
+    {
+      id: 'reprint',
+      label: 'Reprint last receipt',
+      hint: todayOrders[0] ? todayOrders[0].orderNumber : 'No sales yet',
+      icon: <Printer size={15} />,
+      disabled: !todayOrders[0],
+      onSelect: () => { if (todayOrders[0]) setLastOrder(todayOrders[0]); },
+    },
+    {
+      id: 'shift',
+      label: hasShift ? 'Close the shift' : 'Open a shift',
+      icon: hasShift ? <Unlock size={15} /> : <Lock size={15} />,
+      onSelect: () => setView('session'),
+    },
+    /* One role gate for the dashboard link. The register header and the gate
+       screen used to disagree — ACCOUNTANT saw it on one and not the other. */
+    ...(isAdminRole(user?.role)
+      ? [{
+          id: 'admin',
+          label: 'Back to dashboard',
+          icon: <LayoutDashboard size={15} />,
+          separated: true,
+          onSelect: () => router.push('/admin'),
+        } as ActionMenuItem]
+      : []),
+    {
+      id: 'signout',
+      label: 'Sign out',
+      icon: <LogOut size={15} />,
+      danger: true,
+      separated: !isAdminRole(user?.role),
+      onSelect: () => {
+        // A mis-tap here used to end the shift's session with no warning.
+        if (window.confirm('Sign out of the register?')) signOut({ callbackUrl: '/login' });
+      },
+    },
+  ];
 
   /* ─── Orders history view ────────────────────────────────────────── */
   if (view === 'orders') {
@@ -1729,7 +2396,10 @@ export default function POSPage() {
           ) : todayOrders.map(order => (
             <div key={order.id} className="bg-[#191c19] border border-[#2b2f2b] rounded-2xl p-4 flex items-start justify-between gap-3">
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold text-[#f4efeb]">{order.orderNumber}</p>
+                <p className="text-sm font-semibold text-[#f4efeb]">
+                  {order.orderNumber}
+                  <span className="ml-2 font-normal text-xs text-[#aba8a4]">{customerLabel(order)}</span>
+                </p>
                 <p className="text-xs text-[#aba8a4] mt-0.5 truncate">{order.items?.map((i: any) => `${i.quantity}× ${i.name}`).join(', ')}</p>
                 <p className="text-xs text-[#aba8a4]">{formatTime(order.createdAt)} · {PAYMENT_LABELS[order.paymentMethod] ?? order.paymentMethod}</p>
               </div>
@@ -1821,14 +2491,15 @@ export default function POSPage() {
             className="hidden md:flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-medium text-[#aba8a4] border border-[#2b2f2b] hover:border-[#404540] transition">
             <Clock size={12}/> Orders
           </button>
-          {user && ['OWNER', 'MANAGER'].includes(user.role) && (
-            <Link href="/admin" className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-medium text-[#aba8a4] border border-[#2b2f2b] hover:border-[#404540] transition">
-              <LayoutDashboard size={12}/> <span className="hidden sm:inline">Admin</span>
-            </Link>
-          )}
-          <button onClick={() => signOut({ callbackUrl: '/login' })} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs text-[#aba8a4] border border-[#2b2f2b] hover:text-red-400 hover:border-red-500/40 transition">
-            <LogOut size={12}/>
-          </button>
+          {/* Everything secondary lives here, at both breakpoints. Before this
+              the shift pill and Orders were desktop-only, the drawer count was
+              buried inside the close screen, and sign out was an unlabelled
+              icon one tap from the Admin link. */}
+          <ActionMenu
+            label="Register menu"
+            trigger={<><MoreVertical size={14}/> <span className="hidden sm:inline ml-1">Menu</span></>}
+            items={registerMenuItems}
+          />
         </div>
       </header>
 
@@ -1853,8 +2524,10 @@ export default function POSPage() {
                       onClick={() => setSettling(t)}
                       className="shrink-0 rounded-xl border border-yellow-500/40 bg-yellow-500/10 px-3 py-2 text-left transition-colors hover:bg-yellow-500/20"
                     >
-                      <span className="block font-mono text-[11px] font-bold text-yellow-300">
-                        {t.orderNumber}
+                      {/* The name is what a cashier calls out, so it leads;
+                          the ticket number is the fallback for a walk-in. */}
+                      <span className="block max-w-[9rem] truncate font-mono text-[11px] font-bold text-yellow-300">
+                        {cleanName(t.customerName) || t.orderNumber}
                       </span>
                       <span className="block text-[11px] text-[#aba8a4]">
                         {formatCurrency(Number(t.total))} · {mins}m
@@ -1867,11 +2540,19 @@ export default function POSPage() {
             {!search && (
               <div className="flex gap-1.5 overflow-x-auto pb-2 scrollbar-none">
                 {categories.map(cat => (
-                  <button key={cat.id} onClick={() => setActiveCat(cat.id)}
-                    className={`shrink-0 px-4 py-2 rounded-xl text-sm font-semibold transition border ${cat.id === activeCat ? 'bg-[#349f2d]/20 text-[#5ecf4f] border-[#349f2d]/40' : 'text-[#aba8a4] border-[#2b2f2b] hover:border-[#404540] hover:text-[#f4efeb]'}`}>
-                    {cat.name} <span className="opacity-50">({cat.items.length})</span>
+                  <button key={cat.id} onClick={() => { setActiveCat(cat.id); setShowOffMenu(false); }}
+                    className={`shrink-0 px-4 py-2 rounded-xl text-sm font-semibold transition border ${cat.id === activeCat && !viewingOffMenu ? 'bg-[#349f2d]/20 text-[#5ecf4f] border-[#349f2d]/40' : 'text-[#aba8a4] border-[#2b2f2b] hover:border-[#404540] hover:text-[#f4efeb]'}`}>
+                    {cat.name} <span className="opacity-50">({sellable(cat.items).length})</span>
                   </button>
                 ))}
+                {/* Only appears when something is actually off, so the row
+                    stays clean on a normal day. */}
+                {offMenuItems.length > 0 && (
+                  <button onClick={() => setShowOffMenu(v => !v)}
+                    className={`shrink-0 px-4 py-2 rounded-xl text-sm font-semibold transition border ${viewingOffMenu ? 'bg-yellow-400/15 text-yellow-300 border-yellow-400/40' : 'text-[#aba8a4] border-[#2b2f2b] hover:border-yellow-400/40 hover:text-yellow-300'}`}>
+                    Off menu <span className="opacity-50">({offMenuItems.length})</span>
+                  </button>
+                )}
               </div>
             )}
           </div>
@@ -1889,15 +2570,20 @@ export default function POSPage() {
                       // Suppress the click that follows a long-press.
                       if (longPressFired.current) { longPressFired.current = false; return; }
                       if (off) { setEightySixTarget(item); return; }
-                      if (item.modifierGroups && item.modifierGroups.length > 0) {
+                      if (modifiersEnabled && item.modifierGroups && item.modifierGroups.length > 0) {
                         setModifierTarget(item);
                         return;
                       }
-                      addToCart(item);
+                      // Quick-sale mode: straight onto the ticket, carrying
+                      // the defaults any required group would have supplied.
+                      addToCart(item, defaultModifiers(item));
                     }}
                     onPointerDown={() => startLongPress(item)}
                     onPointerUp={cancelLongPress}
                     onPointerLeave={cancelLongPress}
+                    /* Without this, a scroll-drag begun on a tile still fires
+                       the 86 sheet mid-rush. */
+                    onPointerMove={cancelLongPress}
                     onContextMenu={e => { e.preventDefault(); setEightySixTarget(item); }}
                     aria-label={off ? `${item.name} — unavailable, tap to put back on` : item.name}
                     className={`relative text-left rounded-2xl overflow-hidden border transition active:scale-[0.97] select-none ${
@@ -1938,13 +2624,16 @@ export default function POSPage() {
                       </div>
                     ) : (
                       <div
-                        className="w-full h-20 flex items-center justify-center"
+                        className="flex h-20 w-full items-center justify-center px-2"
                         style={{
-                          background: `linear-gradient(160deg, ${tileArt(item.name).tint}55, ${tileArt(item.name).tint}22)`,
+                          background: `linear-gradient(160deg, ${tileTint(item.name)}66, ${tileTint(item.name)}26)`,
                         }}
                       >
-                        <span className="text-3xl drop-shadow-sm" aria-hidden>
-                          {tileArt(item.name).glyph}
+                        <span
+                          className="line-clamp-2 text-center text-[15px] font-bold leading-tight tracking-tight text-[#f4efeb]/85"
+                          aria-hidden
+                        >
+                          {tileHeadline(item.name)}
                         </span>
                       </div>
                     )}
@@ -1957,7 +2646,9 @@ export default function POSPage() {
                 );
               })}
               {filteredItems.length === 0 && (
-                <div className="col-span-full text-center py-10 text-sm text-[#aba8a4]">No items found</div>
+                <div className="col-span-full text-center py-10 text-sm text-[#aba8a4]">
+                  {search.trim() ? 'No items found' : 'Nothing on in this category'}
+                </div>
               )}
             </div>
           </div>
@@ -2054,6 +2745,14 @@ export default function POSPage() {
               </div>
             )}
 
+            {/* Customer — on the cart, not buried in the payment screen, so a
+                name can be attached to a "send to kitchen" ticket too. */}
+            <CustomerFields
+              name={customerName} onName={setCustomerName}
+              phone={customerPhone} onPhone={setCustomerPhone}
+              matches={customerMatches}
+            />
+
             {/* Delivery type — chosen at order entry, before payment */}
             <div className="flex gap-1.5">
               {DELIVERY_TYPES.map(dt => (
@@ -2102,7 +2801,7 @@ export default function POSPage() {
       </div>
 
       {/* Mobile bottom tab nav — only visible on small screens, replaces header session/orders buttons */}
-      <nav className="md:hidden shrink-0 flex border-t border-[#2b2f2b] bg-[#0a0b0a]">
+      <nav style={{ paddingBottom: "env(safe-area-inset-bottom)" }} className="md:hidden shrink-0 flex border-t border-[#2b2f2b] bg-[#0a0b0a]">
         <button
           onClick={() => setMobileTab('menu')}
           className={`flex-1 flex flex-col items-center py-3 gap-1 transition-colors ${mobileTab === 'menu' ? 'text-[#5ecf4f]' : 'text-[#aba8a4]'}`}>
@@ -2203,6 +2902,8 @@ export default function POSPage() {
         />
       )}
 
+      {drawerOverlays}
+
       {/* 86 board sheet — long-press a tile to take a dish off, or put it back */}
       {eightySixTarget && (
         <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center">
@@ -2249,13 +2950,6 @@ export default function POSPage() {
         </div>
       )}
 
-      {/* Global print style */}
-      <style jsx global>{`
-        @media print {
-          body > *:not(#receipt-print) { display: none !important; }
-          #receipt-print { display: block !important; }
-        }
-      `}</style>
     </div>
   );
 }

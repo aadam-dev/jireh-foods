@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/src/lib/auth';
 import { prisma } from '@/src/lib/prisma';
 import { classifyRegisterSession } from '@/src/lib/session-utils';
+import { drawerTotals } from '@/src/lib/cash';
 import { UserRole } from '@prisma/client';
 
 // Break down orders into per-method revenue, handling SPLIT orders correctly.
@@ -68,13 +69,34 @@ export async function GET() {
 
   // Compute session revenue (handles SPLIT orders via calcRevenue)
   let stats = { revenue: 0, cashRevenue: 0, momoRevenue: 0, boltRevenue: 0 };
+  let drawer = { openingFloat: 0, cashRevenue: 0, cashIn: 0, cashOut: 0, expected: 0 };
+  let movements: any[] = [];
+
   if (open) {
-    const orders = await prisma.order.findMany({
-      where: { sessionId: open.id, status: 'COMPLETED', isDemo: false },
-      select: { total: true, paymentMethod: true, splitPayments: true },
-    });
+    const [orders, cashMovements] = await Promise.all([
+      prisma.order.findMany({
+        where: { sessionId: open.id, status: 'COMPLETED', isDemo: false },
+        select: { total: true, paymentMethod: true, splitPayments: true },
+      }),
+      prisma.cashMovement.findMany({
+        where: { sessionId: open.id },
+        orderBy: { createdAt: 'asc' },
+        select: {
+          id: true, direction: true, amount: true, reason: true, createdAt: true,
+          user: { select: { name: true } },
+        },
+      }),
+    ]);
     const r = calcRevenue(orders as any);
     stats = { revenue: r.revenue, cashRevenue: r.cashRevenue, momoRevenue: r.momoRevenue, boltRevenue: r.boltRevenue };
+    movements = cashMovements.map(m => ({ ...m, amount: Number(m.amount) }));
+    // Same helper the close endpoint and the back-office report use, so the
+    // figure on the till can never drift from the one on the report.
+    drawer = drawerTotals({
+      openingFloat: open.openingFloat,
+      cashRevenue: r.cashRevenue,
+      movements,
+    });
   }
 
   return NextResponse.json({
@@ -82,6 +104,10 @@ export async function GET() {
     registerState,
     isStale: registerState === 'stale',
     ...stats,
+    cashMovements: movements,
+    cashIn: drawer.cashIn,
+    cashOut: drawer.cashOut,
+    expectedCash: drawer.expected,
   });
 }
 
@@ -187,7 +213,24 @@ export async function PATCH(req: NextRequest) {
 
   const { revenue: totalRevenue, cashRevenue, momoRevenue, boltRevenue } = calcRevenue(orders as any);
 
-  const expectedCash = Number(pos.openingFloat) + cashRevenue;
+  /* Cash that left or entered the drawer without being a sale has to be in
+     the expected figure, or a shift that paid GH₵50 for gas reads as GH₵50
+     missing and the cashier is asked to explain a hole they already logged. */
+  const movements = await prisma.cashMovement.findMany({
+    where: { sessionId },
+    orderBy: { createdAt: 'asc' },
+    select: {
+      id: true, direction: true, amount: true, reason: true, createdAt: true,
+      user: { select: { name: true } },
+    },
+  });
+  const drawer = drawerTotals({
+    openingFloat: pos.openingFloat,
+    cashRevenue,
+    movements: movements.map(m => ({ direction: m.direction, amount: m.amount })),
+  });
+
+  const expectedCash = drawer.expected;
   const actualCash = parseFloat(closingCash ?? '0');
   const actualMomo = closingMomo != null ? parseFloat(closingMomo) : momoRevenue;
   const actualBolt = closingBolt != null ? parseFloat(closingBolt) : boltRevenue;
@@ -226,6 +269,19 @@ export async function PATCH(req: NextRequest) {
       orderCount: orders.length,
       totalRevenue,
       revenueByMethod,
+      // The printed shift report shows the running sum, so it has to carry the
+      // movements that produced the expected figure.
+      openingFloat: Number(pos.openingFloat),
+      cashIn: drawer.cashIn,
+      cashOut: drawer.cashOut,
+      cashMovements: movements.map(m => ({
+        id: m.id,
+        direction: m.direction,
+        amount: Number(m.amount),
+        reason: m.reason,
+        by: m.user?.name ?? null,
+        at: m.createdAt,
+      })),
       cash:  { expected: expectedCash,  actual: actualCash, discrepancy: actualCash - expectedCash },
       momo:  { expected: momoRevenue,   actual: actualMomo, discrepancy: actualMomo - momoRevenue },
       bolt:  { expected: boltRevenue,   actual: actualBolt, discrepancy: actualBolt - boltRevenue },

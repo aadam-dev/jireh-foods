@@ -17,7 +17,14 @@ const PUBLIC_KEYS = [
   'receipt_header',   // tagline printed under business name on receipt
   'receipt_footer',
   'inventory_tracking', // 'true' | 'false' — gate BOM stock deduction on POS sales
+  'pos_modifiers_enabled', // 'true' | 'false' — open the options sheet on tile tap
 ] as const;
+
+/** Keys whose value must be exactly 'true' or 'false'. */
+const BOOLEAN_KEYS: ReadonlySet<string> = new Set([
+  'inventory_tracking',
+  'pos_modifiers_enabled',
+]);
 
 const upsertSchema = z.object({
   key: z.enum(PUBLIC_KEYS),
@@ -68,8 +75,8 @@ export async function PATCH(req: NextRequest) {
     }
 
     // Boolean-valued settings must be exactly 'true' or 'false'
-    if (key === 'inventory_tracking' && value !== 'true' && value !== 'false') {
-      return NextResponse.json({ error: "inventory_tracking must be 'true' or 'false'" }, { status: 400 });
+    if (BOOLEAN_KEYS.has(key) && value !== 'true' && value !== 'false') {
+      return NextResponse.json({ error: `${key} must be 'true' or 'false'` }, { status: 400 });
     }
 
     const setting = await setSetting(key, value);

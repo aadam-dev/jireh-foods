@@ -12,7 +12,10 @@
     "db:studio": "prisma studio",
     "db:seed": "tsx prisma/seed.ts",
     "db:seed:api": "node prisma/seed-via-api.mjs",
-    "test:money": "tsx --test src/lib/money.test.ts"
+    "db:add-quick-sale-items": "tsx prisma/add-quick-sale-items.ts",
+    "test:money": "tsx --test src/lib/money.test.ts",
+    "test:modifiers": "tsx --test src/lib/modifiers.test.ts",
+    "test": "tsx --test src/lib/*.test.ts"
   },
   "dependencies": {
     "@ducanh2912/next-pwa": "^10.2.9",

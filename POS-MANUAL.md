@@ -4,7 +4,7 @@
 Section 2 gets you through your first shift. Everything after it is there for
 the day you need it.
 
-Kept next to the code so it stays true. Last updated 3 August 2026.
+Kept next to the code so it stays true. Last updated 11 August 2026.
 
 ---
 
@@ -17,7 +17,9 @@ Kept next to the code so it stays true. Last updated 3 August 2026.
 | Customer eats first, pays later | Tap **Send to kitchen · pay later** |
 | Take money for a ticket | Tap the yellow ticket at the top → pick how they paid |
 | Something ran out | Press and hold the food, choose **Take off menu** |
-| End your day | **Shift** → count the drawer → **Close Shift** |
+| Take money out of the drawer | **Menu** → **Cash out** → say what it was for |
+| Check where the drawer stands | **Menu** → **Shift sales** |
+| End your day | **Menu** → **Close the shift** → count the drawer |
 
 **The golden rule:** if the screen and the money in your hand disagree, trust
 the money and tell your manager. Never change a number to make it match.
@@ -136,6 +138,21 @@ line of "Jollof, grilled" and one of "Jollof, fried" is correct, not a bug.
 Tap **Add note** on any line — "no pepper", "pack separately". The note prints
 on the kitchen ticket.
 
+### 3.5 Putting a name on an order
+
+Type the customer's name in the box above **Charge**. Leave it empty for
+someone passing through — the order simply shows as "Walk-in", and nothing is
+saved.
+
+Once you have served somebody, their name comes back as a suggestion the next
+time you start typing it. Tap the suggestion rather than retyping: that keeps
+one record per customer instead of four spellings of the same person. If they
+give a phone number the first time, picking their name later fills it in for
+you.
+
+The name prints on the receipt and shows on the yellow ticket at the top of
+the screen, so it is easier to call out than a ticket number.
+
 ---
 
 ## 4. Less common, still useful
@@ -176,39 +193,77 @@ tap **Sync now**, and tell your manager if it still will not clear.
 
 **Orders** at the bottom → find the order → **Print**.
 
+### 4.5 The Menu button
+
+**Menu** at the top right holds everything that is not a food tile:
+
+- **Shift sales** — where the drawer stands right now. You can print it.
+- **Count the drawer** — count your notes without closing the shift.
+- **Cash in** / **Cash out** — see §4.6.
+- **Today's orders** and **Reprint last receipt**.
+- **Close the shift**, and **Sign out**.
+
+### 4.6 Money in or out of the drawer
+
+Any time cash leaves the drawer and it is not change for a customer — gas,
+paying a supplier, the owner taking money — record it:
+
+1. **Menu** → **Cash out**.
+2. Type the amount.
+3. Say what it was for. Tap one of the suggestions or type your own.
+4. Tap **Record**.
+
+Use **Cash in** the same way for money added that is not a sale.
+
+> This is not paperwork. **Expected in drawer** drops by whatever you took out,
+> so at closing time the drawer still balances. Skip it and the shift looks
+> short by exactly that amount, and you will be the one asked to explain it.
+
 ---
 
 ## 5. Closing your shift
 
 Do this at the end of every working period, before you hand over or go home.
 
-1. Tap **Shift** at the bottom.
-2. **Count the drawer.** Use **Count notes** and tap **+** for each note and
-   coin. The total adds itself up. This is more reliable than counting in your
-   head and typing one number — and if the total is wrong, you can see which
-   denomination you miscounted.
-   (Prefer to type one figure? Switch to **Type total**.)
-3. Enter MoMo and Bolt amounts received if the shift took any.
-4. Check the **Difference**.
-5. Tap **Close Shift**.
+1. **Menu** → **Close the shift**.
+2. **Count the cash.** Tap **Count notes** and tap **+** for each note and
+   coin. The total adds itself up, and if it is wrong you can see which
+   denomination you miscounted. (Prefer one figure? Tap **Type total**.)
+   Tap **Done** when the drawer is counted.
+3. Enter MoMo and Bolt amounts received, if the shift took any.
+4. Check **Total difference**.
+5. Write a **Closing note** if the next person needs to know anything.
+6. Tap **Close Shift**.
 
-### Understanding the three numbers
+You can leave without closing at any point — **Not yet** goes back to selling
+and keeps what you counted. **Print summary** prints the same figures on till
+paper.
+
+### Understanding the numbers
+
+The Cash line shows its own working, so you can see where the figure came
+from:
+
+> Float GH₵100.00 · Sales + GH₵20.00 · Out − GH₵50.00
 
 | | Means |
 |---|---|
-| **Expected in drawer** | Opening float + all cash sales this shift |
+| **Expected in drawer** | Float, plus cash sales, plus cash in, minus cash out |
 | **Counted** | What you physically counted just now |
 | **Difference** | Counted − Expected |
 
-**"Exact"** means they match. Otherwise it shows how much over or short.
+Until you count, Difference reads **"Not counted yet"** — not a big red
+number. Once you count it says **"Exact"**, **"Over by GH₵X"** or **"Short by
+GH₵X"**.
 
-If there is a difference, the system asks you to confirm before closing. **Do
-not adjust your count to make it match.** Count again. If it is still different,
-close the shift with the true number and tell your manager. An honest
+If there is a difference, the register asks you to confirm before closing.
+**Do not adjust your count to make it match.** Count again. If it is still
+different, close with the true number and tell your manager. An honest
 difference is a small problem; a false count is a serious one.
 
-Common innocent reasons: change given from your own pocket, a cash sale rung up
-as MoMo, or a payout taken from the drawer without a note.
+Common innocent reasons: change given from your own pocket, a cash sale rung
+up as MoMo, or money taken from the drawer that nobody recorded — which is
+what **Cash out** (§4.6) is there to prevent.
 
 ---
 

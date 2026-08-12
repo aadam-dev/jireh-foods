@@ -70,6 +70,20 @@ export default withPWA({
         },
       },
       {
+        /* Customer name suggestions. Cached so a till that drops offline mid
+           service still offers the regulars — the alternative is the field
+           silently going dumb exactly when reconnecting is hardest.
+           maxEntries is generous because each distinct ?q= is its own entry. */
+        urlPattern: /^https?:\/\/[^/]+\/api\/pos\/customers.*/i,
+        handler: 'NetworkFirst',
+        options: {
+          cacheName: 'pos-customers',
+          networkTimeoutSeconds: 5,
+          expiration: { maxEntries: 60, maxAgeSeconds: 24 * 60 * 60 },
+          cacheableResponse: { statuses: [0, 200] },
+        },
+      },
+      {
         // Google Fonts — cache-first (immutable CDN assets)
         urlPattern: /^https:\/\/fonts\.(googleapis|gstatic)\.com\/.*/i,
         handler: 'CacheFirst',
