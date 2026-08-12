@@ -8,7 +8,7 @@ import {
   LayoutDashboard, ChevronRight, Banknote, Smartphone, CreditCard,
   Building2, CheckCircle2, Printer, RotateCcw, Clock, AlertCircle,
   Lock, Unlock, Receipt, ChevronDown, Pencil, Zap,
-  MoreVertical,
+  UserRound,
   Calculator
 } from 'lucide-react';
 import Link from 'next/link';
@@ -2502,39 +2502,48 @@ export default function POSPage() {
         </div>
       )}
 
-      {/* Top bar */}
-      <header className="shrink-0 flex items-center justify-between px-3 py-2.5 bg-[#0a0b0a] border-b border-[#2b2f2b]">
-        <div className="flex items-center gap-2">
-          <div className="w-7 h-7 rounded-lg overflow-hidden border border-[#349f2d]/40 bg-white flex-shrink-0">
-            <Image src="/jireh/logo.jpg" alt="Jireh Natural Foods" width={28} height={28} className="object-contain w-full h-full" />
+      {/* Top bar — PrimeTijara-style identity + a real Menu pill.
+          On phones the old icon-only overflow control was easy to miss, and
+          its absolute dropdown was clipped by the register's overflow-hidden
+          shell. Identity stays left; Menu is always a labelled touch target. */}
+      <header className="shrink-0 flex items-center justify-between gap-2 px-3 py-2.5 bg-[#0a0b0a] border-b border-[#2b2f2b]">
+        <div className="flex min-w-0 items-center gap-2.5">
+          <div className="w-8 h-8 rounded-full overflow-hidden border border-[#349f2d]/40 bg-white flex-shrink-0">
+            <Image src="/jireh/logo.jpg" alt="Jireh Natural Foods" width={32} height={32} className="object-contain w-full h-full" />
           </div>
-          <span className="text-sm font-semibold text-[#f4efeb]">Jireh POS</span>
-          <span className="text-xs text-[#aba8a4] hidden sm:block">· {user?.name}</span>
-          {isItAdmin && (
-            <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-400/15 border border-amber-400/40 text-amber-400 text-[10px] font-bold tracking-wide">
-              DEMO MODE
-            </span>
-          )}
+          <div className="min-w-0">
+            <p className="truncate text-sm font-semibold text-[#f4efeb] leading-tight">
+              Signed in as {user?.name?.split(' ')[0] || 'staff'}
+            </p>
+            <p className="truncate text-[11px] text-[#aba8a4] leading-tight">
+              {isItAdmin
+                ? 'Demo mode'
+                : posSession
+                  ? `${todayOrders.length} sale${todayOrders.length === 1 ? '' : 's'} · ${formatCurrency(sessionStats.revenue)}`
+                  : 'No shift open'}
+            </p>
+          </div>
         </div>
-        <div className="flex items-center gap-1.5">
+        <div className="flex shrink-0 items-center gap-1.5">
           <HeaderClock />
-          {/* Session pill — hidden on mobile (shift is in bottom nav) */}
+          {/* Session pill — desktop only; mobile reaches shift via Menu / bottom nav */}
           <button onClick={() => setView('session')}
             className={`hidden md:flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-medium border transition ${posSession ? 'bg-[#349f2d]/20 text-[#5ecf4f] border-[#349f2d]/40' : 'text-[#aba8a4] border-[#2b2f2b] hover:border-[#404540]'}`}>
             {posSession ? <><Unlock size={12}/> Shift Open</> : <><Lock size={12}/> No Shift</>}
           </button>
-          {/* Orders — hidden on mobile (orders is in bottom nav) */}
           <button onClick={() => { setView('orders'); fetchOrders(); }}
             className="hidden md:flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-medium text-[#aba8a4] border border-[#2b2f2b] hover:border-[#404540] transition">
             <Clock size={12}/> Orders
           </button>
-          {/* Everything secondary lives here, at both breakpoints. Before this
-              the shift pill and Orders were desktop-only, the drawer count was
-              buried inside the close screen, and sign out was an unlabelled
-              icon one tap from the Admin link. */}
           <ActionMenu
             label="Register menu"
-            trigger={<><MoreVertical size={14}/> <span className="hidden sm:inline ml-1">Menu</span></>}
+            trigger={
+              <>
+                <UserRound size={14} />
+                <span>Menu</span>
+                <ChevronDown size={14} className="opacity-70" />
+              </>
+            }
             items={registerMenuItems}
           />
         </div>
