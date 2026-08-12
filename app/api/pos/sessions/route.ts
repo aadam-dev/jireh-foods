@@ -56,59 +56,66 @@ export async function GET() {
   const session = await auth();
   if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const open = await prisma.posSession.findFirst({
-    where: { status: 'OPEN' },
-    include: {
-      openedByUser: { select: { id: true, name: true } },
-      _count: { select: { orders: true } },
-    },
-    orderBy: { openedAt: 'desc' },
-  });
-
-  const registerState = open ? classifyRegisterSession(open.openedAt) : 'none';
-
-  // Compute session revenue (handles SPLIT orders via calcRevenue)
-  let stats = { revenue: 0, cashRevenue: 0, momoRevenue: 0, boltRevenue: 0 };
-  let drawer = { openingFloat: 0, cashRevenue: 0, cashIn: 0, cashOut: 0, expected: 0 };
-  let movements: any[] = [];
-
-  if (open) {
-    const [orders, cashMovements] = await Promise.all([
-      prisma.order.findMany({
-        where: { sessionId: open.id, status: 'COMPLETED', isDemo: false },
-        select: { total: true, paymentMethod: true, splitPayments: true },
-      }),
-      prisma.cashMovement.findMany({
-        where: { sessionId: open.id },
-        orderBy: { createdAt: 'asc' },
-        select: {
-          id: true, direction: true, amount: true, reason: true, createdAt: true,
-          user: { select: { name: true } },
-        },
-      }),
-    ]);
-    const r = calcRevenue(orders as any);
-    stats = { revenue: r.revenue, cashRevenue: r.cashRevenue, momoRevenue: r.momoRevenue, boltRevenue: r.boltRevenue };
-    movements = cashMovements.map(m => ({ ...m, amount: Number(m.amount) }));
-    // Same helper the close endpoint and the back-office report use, so the
-    // figure on the till can never drift from the one on the report.
-    drawer = drawerTotals({
-      openingFloat: open.openingFloat,
-      cashRevenue: r.cashRevenue,
-      movements,
+  try {
+    const open = await prisma.posSession.findFirst({
+      where: { status: 'OPEN' },
+      include: {
+        openedByUser: { select: { id: true, name: true } },
+        _count: { select: { orders: true } },
+      },
+      orderBy: { openedAt: 'desc' },
     });
-  }
 
-  return NextResponse.json({
-    session: open,
-    registerState,
-    isStale: registerState === 'stale',
-    ...stats,
-    cashMovements: movements,
-    cashIn: drawer.cashIn,
-    cashOut: drawer.cashOut,
-    expectedCash: drawer.expected,
-  });
+    const registerState = open ? classifyRegisterSession(open.openedAt) : 'none';
+
+    // Compute session revenue (handles SPLIT orders via calcRevenue)
+    let stats = { revenue: 0, cashRevenue: 0, momoRevenue: 0, boltRevenue: 0 };
+    let drawer = { openingFloat: 0, cashRevenue: 0, cashIn: 0, cashOut: 0, expected: 0 };
+    let movements: any[] = [];
+
+    if (open) {
+      const [orders, cashMovements] = await Promise.all([
+        prisma.order.findMany({
+          where: { sessionId: open.id, status: 'COMPLETED', isDemo: false },
+          select: { total: true, paymentMethod: true, splitPayments: true },
+        }),
+        prisma.cashMovement.findMany({
+          where: { sessionId: open.id },
+          orderBy: { createdAt: 'asc' },
+          select: {
+            id: true, direction: true, amount: true, reason: true, createdAt: true,
+            user: { select: { name: true } },
+          },
+        }),
+      ]);
+      const r = calcRevenue(orders as any);
+      stats = { revenue: r.revenue, cashRevenue: r.cashRevenue, momoRevenue: r.momoRevenue, boltRevenue: r.boltRevenue };
+      movements = cashMovements.map(m => ({ ...m, amount: Number(m.amount) }));
+      // Same helper the close endpoint and the back-office report use, so the
+      // figure on the till can never drift from the one on the report.
+      drawer = drawerTotals({
+        openingFloat: open.openingFloat,
+        cashRevenue: r.cashRevenue,
+        movements,
+      });
+    }
+
+    return NextResponse.json({
+      session: open,
+      registerState,
+      isStale: registerState === 'stale',
+      ...stats,
+      cashMovements: movements,
+      cashIn: drawer.cashIn,
+      cashOut: drawer.cashOut,
+      expectedCash: drawer.expected,
+    });
+  } catch (err) {
+    // An uncaught throw here used to 500 with an HTML error page, which left
+    // the POS gate stuck on "Checking register…" with no retry path.
+    console.error('[pos/sessions GET]', err);
+    return NextResponse.json({ error: 'Failed to load register session' }, { status: 500 });
+  }
 }
 
 // POST /api/pos/sessions — open a new session

@@ -64,7 +64,7 @@ interface CashMovement {
   id: string; direction: 'IN' | 'OUT'; amount: number; reason: string;
   createdAt: string; user?: { name: string } | null;
 }
-type RegisterGate = 'checking' | 'continue' | 'stale' | 'open_new' | 'active';
+type RegisterGate = 'checking' | 'continue' | 'stale' | 'open_new' | 'active' | 'error';
 
 const PAYMENT_METHODS = [
   { id: 'CASH', label: 'Cash', icon: Banknote },
@@ -879,8 +879,17 @@ export default function POSPage() {
      was closed on another device. A plain figures refresh is never one of
      them. */
   const fetchSession = async (opts?: { activate?: boolean }) => {
-    const res = await fetch('/api/pos/sessions');
-    if (res.ok) {
+    /* A failed check used to leave registerGate at 'checking' forever —
+       cashiers (nii) saw a spinner with no way out while IT admin skipped
+       this path entirely. Always leave checking, and surface a retry. */
+    try {
+      const res = await fetch('/api/pos/sessions');
+      if (!res.ok) {
+        // Don't yank an already-active till into the error screen on a
+        // figures refresh — only the initial gate (no live session) needs it.
+        if (!isItAdmin && !posSessionRef.current) setRegisterGate('error');
+        return;
+      }
       const data = await res.json();
       setSessionStats({
         revenue: data.revenue,
@@ -891,7 +900,7 @@ export default function POSPage() {
       setCashMovements(Array.isArray(data.cashMovements) ? data.cashMovements : []);
       // IT admin runs in demo mode and never holds a shift — refreshing the
       // figures must not pull the register out from under it either.
-      if (isItAdmin) { setSessionChecked(true); return; }
+      if (isItAdmin) return;
       if (data.session) {
         setPendingSession(data.session);
         const stale = data.isStale ?? classifyRegisterSession(data.session.openedAt) === 'stale';
@@ -916,8 +925,11 @@ export default function POSPage() {
         setPosSession(null);
         setRegisterGate('open_new');
       }
+    } catch {
+      if (!isItAdmin && !posSessionRef.current) setRegisterGate('error');
+    } finally {
+      setSessionChecked(true);
     }
-    setSessionChecked(true);
   };
 
   const activateRegister = () => {
@@ -1596,6 +1608,31 @@ export default function POSPage() {
         <div className="text-center">
           <div className="w-10 h-10 rounded-full border-2 border-[#349f2d] border-t-transparent animate-spin mx-auto mb-3"/>
           <p className="text-sm text-[#aba8a4]">Checking register…</p>
+        </div>
+      );
+    }
+
+    if (registerGate === 'error') {
+      return registerGateShell(
+        <div className="w-full max-w-sm bg-[#191c19] border border-red-500/30 rounded-3xl p-6 space-y-5 text-center">
+          <div className="w-14 h-14 rounded-2xl bg-red-400/10 border border-red-400/30 flex items-center justify-center mx-auto">
+            <AlertCircle size={24} className="text-red-400"/>
+          </div>
+          <div>
+            <h2 className="text-lg font-bold text-[#f4efeb] font-serif">Couldn’t reach the register</h2>
+            <p className="text-xs text-[#aba8a4] mt-2">
+              The till check failed. Check your connection and try again — your shift is safe.
+            </p>
+          </div>
+          <button
+            onClick={() => {
+              setSessionChecked(false);
+              setRegisterGate('checking');
+              fetchSession();
+            }}
+            className="w-full bg-[#349f2d] hover:bg-[#287e22] text-white rounded-2xl py-3.5 font-bold text-sm transition active:scale-[0.98]">
+            Try again
+          </button>
         </div>
       );
     }
