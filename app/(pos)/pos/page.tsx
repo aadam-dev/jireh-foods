@@ -120,22 +120,33 @@ function clearShiftAck(userId?: string) {
 }
 
 /* ─── Tile artwork ───────────────────────────────────────────────────
-   Items without a photo (meat pie, buns, millet, brukina…) used to render a
-   30%-opacity plate emoji on a short tile — invisible during a rush and it
-   made the grid ragged. Give every photo-less item a solid, colour-coded
-   glyph tile at the same height as a photo so staff can still tap by sight. */
-const TILE_ART: { match: RegExp; glyph: string; tint: string }[] = [
-  { match: /pie|buns|bread|pastry|cake|doughnut|spring roll/i, glyph: '🥧', tint: '#8a5a1f' },
-  { match: /sobolo|brukina|millet|yoghurt|smoothie|juice|drink|water|malt|soda|coke|fanta|sprite/i, glyph: '🥤', tint: '#1f5a6b' },
-  { match: /jollof|rice|fried rice/i, glyph: '🍚', tint: '#7a4a1a' },
-  { match: /fufu|banku|kenkey|tuo|soup|stew/i, glyph: '🍲', tint: '#6b3f1f' },
-  { match: /chicken|fries|grill|kebab|meat|fish|tilapia/i, glyph: '🍗', tint: '#7a3a2a' },
+   Not every dish has a photograph, and one never will the day it is added.
+   Those tiles used to carry a food emoji on a tinted card, which reads as a
+   placeholder rather than a design — and next to real photography it looks
+   like something failed to load.
+
+   Instead the dish sets its own tile: its name, large, on a colour-coded
+   card. Same height as a photo so the grid stays even (the original reason
+   this exists), and a cashier reads the word faster than they decode a 🍚.
+   The keyword only picks the colour now, so a family of dishes still shares
+   a look and can be found by sight during a rush. */
+const TILE_TINTS: { match: RegExp; tint: string }[] = [
+  { match: /pie|buns|bread|pastry|cake|doughnut|spring roll/i, tint: '#8a5a1f' },
+  { match: /sobolo|brukina|millet|yoghurt|smoothie|juice|drink|water|malt|soda|coke|fanta|sprite/i, tint: '#1f5a6b' },
+  { match: /jollof|rice|fried rice/i, tint: '#7a4a1a' },
+  { match: /fufu|banku|kenkey|tuo|soup|stew/i, tint: '#6b3f1f' },
+  { match: /chicken|fries|grill|kebab|meat|fish|tilapia/i, tint: '#7a3a2a' },
 ];
 
-function tileArt(name: string) {
-  return (
-    TILE_ART.find(a => a.match.test(name)) ?? { glyph: '🍽', tint: '#2b3a2b' }
-  );
+function tileTint(name: string) {
+  return (TILE_TINTS.find(a => a.match.test(name)) ?? { tint: '#2b3a2b' }).tint;
+}
+
+/* The part of the name worth showing large. Sizes and qualifiers live on the
+   label under the tile already, so "Jollof Rice Only — Medium" shows as
+   "Jollof Rice" rather than repeating itself in two type sizes. */
+function tileHeadline(name: string) {
+  return name.split('—')[0].replace(/\bOnly\b/i, '').trim() || name;
 }
 
 /* ─── Numpad Component ───────────────────────────────────────────────── */
@@ -2613,13 +2624,16 @@ export default function POSPage() {
                       </div>
                     ) : (
                       <div
-                        className="w-full h-20 flex items-center justify-center"
+                        className="flex h-20 w-full items-center justify-center px-2"
                         style={{
-                          background: `linear-gradient(160deg, ${tileArt(item.name).tint}55, ${tileArt(item.name).tint}22)`,
+                          background: `linear-gradient(160deg, ${tileTint(item.name)}66, ${tileTint(item.name)}26)`,
                         }}
                       >
-                        <span className="text-3xl drop-shadow-sm" aria-hidden>
-                          {tileArt(item.name).glyph}
+                        <span
+                          className="line-clamp-2 text-center text-[15px] font-bold leading-tight tracking-tight text-[#f4efeb]/85"
+                          aria-hidden
+                        >
+                          {tileHeadline(item.name)}
                         </span>
                       </div>
                     )}
