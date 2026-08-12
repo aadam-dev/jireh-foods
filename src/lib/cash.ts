@@ -74,6 +74,35 @@ export function expectedInDrawer(inputs: DrawerInputs): number {
 }
 
 /**
+ * MoMo wallet expected balance — same idea as the drawer, without movements.
+ *
+ * Opening is nullable on purpose: null means the cashier never checked the
+ * wallet at open, which is not the same as starting at zero. When opening was
+ * recorded, expected = opening + MoMo sales. When it was not, expected is just
+ * the session's MoMo sales (what PrimeTijara would still ask you to verify).
+ */
+export function walletTotals({
+  openingMomo,
+  momoRevenue,
+}: {
+  openingMomo: unknown;
+  momoRevenue: unknown;
+}) {
+  const sales = num(momoRevenue);
+  const recorded =
+    openingMomo !== null &&
+    openingMomo !== undefined &&
+    openingMomo !== '';
+  const opening = recorded ? num(openingMomo) : null;
+  return {
+    openingMomo: opening,
+    momoRevenue: sales,
+    expected: roundMoney((opening ?? 0) + sales),
+    openingRecorded: recorded,
+  };
+}
+
+/**
  * Counted minus expected. Positive is over, negative is short.
  * Returns null when nothing has been counted yet — the close screen shows
  * "Not counted yet" rather than a frightening red number the cashier caused

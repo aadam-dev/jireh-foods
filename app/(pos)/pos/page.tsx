@@ -27,7 +27,7 @@ import {
   GHS_DENOMINATIONS, denomLabel, denominationTotal, bumpDenomination,
   type DenominationCounts,
 } from '@/src/lib/denominations';
-import { drawerTotals, drawerDifference, differenceLabel } from '@/src/lib/cash';
+import { drawerTotals, drawerDifference, differenceLabel, walletTotals } from '@/src/lib/cash';
 import { ActionMenu, type ActionMenuItem } from '@/src/components/ui/ActionMenu';
 import { computeOrderTotals, changeDue } from '@/src/lib/money';
 import { DEVELOPER_CREDIT, RECEIPT_CREDIT_LINES } from '@/src/lib/developer-credit';
@@ -58,7 +58,15 @@ interface MenuCategory { id: string; name: string; items: MenuItem[] }
 function cartLineId(menuItemId: string, optionIds: string[]) {
   return optionIds.length ? `${menuItemId}|${[...optionIds].sort().join(',')}` : menuItemId;
 }
-interface PosSession { id: string; openedByUser: { id?: string; name: string }; openedAt: string; openingFloat: number; status: string }
+interface PosSession {
+  id: string;
+  openedByUser: { id?: string; name: string };
+  openedAt: string;
+  openingFloat: number;
+  /** Null when the wallet was not checked at open. */
+  openingMomo?: number | null;
+  status: string;
+}
 interface SessionStats { revenue: number; cashRevenue: number; momoRevenue: number; boltRevenue: number }
 interface CashMovement {
   id: string; direction: 'IN' | 'OUT'; amount: number; reason: string;
@@ -750,9 +758,16 @@ export default function POSPage() {
   const [shiftReport, setShiftReport] = useState<null | 'x'>(null);
   const checkoutClientRef = useRef<string | null>(null);
   const [openingFloatStr, setOpeningFloatStr] = useState('0');
+  /* Empty string, not '0'. A MoMo balance nobody checked must stay unrecorded —
+     a zero we invented looks authoritative and quietly makes the first close
+     wrong by whatever was actually in the wallet. */
+  const [openingMomoStr, setOpeningMomoStr] = useState('');
+  /** Which figure the numpad is editing on the open-shift screen. */
+  const [openingField, setOpeningField] = useState<'cash' | 'momo'>('cash');
   const [closingCashStr, setClosingCashStr] = useState('0');
-  const [closingMomoStr, setClosingMomoStr] = useState('0');
-  const [closingBoltStr, setClosingBoltStr] = useState('0');
+  /* Empty until counted — same rule as cash notes: untouched ≠ zero. */
+  const [closingMomoStr, setClosingMomoStr] = useState('');
+  const [closingBoltStr, setClosingBoltStr] = useState('');
   /** Levy rate from Settings; 0 unless an owner sets one. */
   const [taxRate, setTaxRate] = useState(0);
   /** Open tickets — sent to the kitchen, not yet paid. */
@@ -1202,7 +1217,8 @@ export default function POSPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          openingFloat: parseFloat(openingFloatStr),
+          openingFloat: parseFloat(openingFloatStr) || 0,
+          openingMomo: openingMomoStr === '' ? null : parseFloat(openingMomoStr),
           forceCloseStale,
         }),
       });
@@ -1232,8 +1248,13 @@ export default function POSPage() {
         cashRevenue: sessionStats.cashRevenue,
         movements: cashMovements,
       }).expected;
+      const expectedMomo = walletTotals({
+        openingMomo: active.openingMomo,
+        momoRevenue: sessionStats.momoRevenue,
+      }).expected;
+      const countedMomo = closingMomoStr === '' ? expectedMomo : (parseFloat(closingMomoStr) || 0);
       const cashDisc  = countedCash - expectedCash;
-      const momoDisc  = (parseFloat(closingMomoStr) || 0) - sessionStats.momoRevenue;
+      const momoDisc  = countedMomo - expectedMomo;
       const boltDisc  = (parseFloat(closingBoltStr) || 0) - sessionStats.boltRevenue;
       const hasDisc   = Math.abs(cashDisc) > 0.01 || Math.abs(momoDisc) > 0.01 || Math.abs(boltDisc) > 0.01;
       if (hasDisc) {
@@ -1258,8 +1279,8 @@ export default function POSPage() {
         body: JSON.stringify({
           sessionId: active.id,
           closingCash: countedCash,
-          closingMomo: parseFloat(closingMomoStr) || 0,
-          closingBolt: parseFloat(closingBoltStr) || 0,
+          closingMomo: closingMomoStr === '' ? null : parseFloat(closingMomoStr),
+          closingBolt: closingBoltStr === '' ? null : parseFloat(closingBoltStr),
           cashCount: countMode === 'notes' && Object.keys(cashCounts).length > 0 ? cashCounts : null,
           notes: closingNote.trim() || null,
         }),
@@ -1522,7 +1543,7 @@ export default function POSPage() {
               </div>
             )}
             {/* MoMo */}
-            {momo && momo.expected > 0 && (
+            {momo && (momo.expected > 0 || momo.actual > 0) && (
               <div className="bg-[#111311] rounded-2xl p-3">
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-sm font-semibold text-[#f4efeb]">📱 MoMo</span>
@@ -1530,7 +1551,7 @@ export default function POSPage() {
                 </div>
                 <div className="grid grid-cols-2 gap-1 text-xs text-[#aba8a4]">
                   <span>Expected</span><span className="text-right text-[#f4efeb]">{formatCurrency(momo.expected)}</span>
-                  <span>Received</span><span className="text-right text-[#f4efeb]">{formatCurrency(momo.actual)}</span>
+                  <span>Counted</span><span className="text-right text-[#f4efeb]">{formatCurrency(momo.actual)}</span>
                 </div>
               </div>
             )}
@@ -1704,13 +1725,52 @@ export default function POSPage() {
             <Lock size={24} className="text-[#5ecf4f]"/>
           </div>
           <h2 className="text-lg font-bold text-[#f4efeb] font-serif">Open Today&apos;s Shift</h2>
-          <p className="text-xs text-[#aba8a4] mt-1">Enter the cash float in the drawer to begin. Required for accounting.</p>
+          <p className="text-xs text-[#aba8a4] mt-1">
+            Count the cash in the drawer and the MoMo wallet balance before the first sale.
+          </p>
         </div>
+
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            onClick={() => setOpeningField('cash')}
+            className={`rounded-2xl border p-3 text-left transition ${
+              openingField === 'cash'
+                ? 'border-[#349f2d]/40 bg-[#349f2d]/10'
+                : 'border-[#2b2f2b] bg-[#111311]'
+            }`}
+          >
+            <p className="text-[10px] uppercase tracking-wide text-[#aba8a4]">Cash in till</p>
+            <p className="mt-1 font-mono text-lg font-bold tabular-nums text-[#5ecf4f]">
+              {formatCurrency(parseFloat(openingFloatStr) || 0)}
+            </p>
+          </button>
+          <button
+            type="button"
+            onClick={() => setOpeningField('momo')}
+            className={`rounded-2xl border p-3 text-left transition ${
+              openingField === 'momo'
+                ? 'border-[#349f2d]/40 bg-[#349f2d]/10'
+                : 'border-[#2b2f2b] bg-[#111311]'
+            }`}
+          >
+            <p className="text-[10px] uppercase tracking-wide text-[#aba8a4]">MoMo wallet</p>
+            <p className="mt-1 font-mono text-lg font-bold tabular-nums text-[#5ecf4f]">
+              {openingMomoStr === '' ? '—' : formatCurrency(parseFloat(openingMomoStr) || 0)}
+            </p>
+          </button>
+        </div>
+
         <div>
-          <p className="text-xs text-[#aba8a4] mb-2">Opening Cash Float (GH₵)</p>
-          <p className="text-2xl font-bold text-[#5ecf4f] font-mono text-center mb-3">{formatCurrency(parseFloat(openingFloatStr) || 0)}</p>
-          <Numpad value={openingFloatStr} onChange={setOpeningFloatStr}/>
+          <p className="mb-2 text-xs text-[#aba8a4]">
+            {openingField === 'cash' ? 'Opening cash float (GH₵)' : 'Opening MoMo balance (GH₵)'}
+          </p>
+          <Numpad
+            value={openingField === 'cash' ? openingFloatStr : (openingMomoStr || '0')}
+            onChange={openingField === 'cash' ? setOpeningFloatStr : setOpeningMomoStr}
+          />
         </div>
+
         <button onClick={() => openSession()} disabled={sessionLoading}
           className="w-full bg-[#349f2d] hover:bg-[#287e22] disabled:opacity-40 text-white rounded-2xl py-3.5 font-bold text-sm transition active:scale-[0.98] shadow-[0_0_20px_rgba(52,159,45,0.3)]">
           {sessionLoading ? 'Opening…' : 'Open Shift & Start Selling'}
@@ -2082,8 +2142,16 @@ export default function POSPage() {
                     <p className="text-lg font-bold text-[#5ecf4f]">{formatCurrency(sessionStats.revenue)}</p>
                   </div>
                   <div className="bg-[#111311] rounded-xl p-3 text-center">
-                    <p className="text-xs text-[#aba8a4]">Cash Revenue</p>
+                    <p className="text-xs text-[#aba8a4]">Cash sales</p>
                     <p className="text-lg font-bold text-[#f4efeb]">{formatCurrency(sessionStats.cashRevenue)}</p>
+                  </div>
+                  <div className="bg-[#111311] rounded-xl p-3 text-center">
+                    <p className="text-xs text-[#aba8a4]">MoMo sales</p>
+                    <p className="text-lg font-bold text-[#f4efeb]">{formatCurrency(sessionStats.momoRevenue)}</p>
+                  </div>
+                  <div className="bg-[#111311] rounded-xl p-3 text-center">
+                    <p className="text-xs text-[#aba8a4]">Bolt sales</p>
+                    <p className="text-lg font-bold text-[#f4efeb]">{formatCurrency(sessionStats.boltRevenue)}</p>
                   </div>
                 </div>
               </div>
@@ -2099,6 +2167,10 @@ export default function POSPage() {
                   cashRevenue: sessionStats.cashRevenue,
                   movements: cashMovements,
                 });
+                const wallet = walletTotals({
+                  openingMomo: shiftSession.openingMomo,
+                  momoRevenue: sessionStats.momoRevenue,
+                });
                 /* Untouched means untouched. Showing a huge red difference the
                    moment the screen opens — as PrimeTijara does — teaches
                    people to ignore the one number that matters. */
@@ -2110,10 +2182,17 @@ export default function POSPage() {
                   : (parseFloat(closingCashStr) || 0);
                 const cashDiff = drawerDifference(cashTouched ? countedCash : null, drawer.expected);
 
-                const momoTouched = closingMomoStr !== '' && closingMomoStr !== '0';
-                const boltTouched = closingBoltStr !== '' && closingBoltStr !== '0';
-                const momoDiff = drawerDifference(momoTouched ? parseFloat(closingMomoStr) || 0 : null, sessionStats.momoRevenue);
-                const boltDiff = drawerDifference(boltTouched ? parseFloat(closingBoltStr) || 0 : null, sessionStats.boltRevenue);
+                const showMomo = wallet.openingRecorded || sessionStats.momoRevenue > 0;
+                const momoTouched = closingMomoStr !== '';
+                const boltTouched = closingBoltStr !== '';
+                const momoDiff = drawerDifference(
+                  momoTouched ? parseFloat(closingMomoStr) || 0 : null,
+                  wallet.expected,
+                );
+                const boltDiff = drawerDifference(
+                  boltTouched ? parseFloat(closingBoltStr) || 0 : null,
+                  sessionStats.boltRevenue,
+                );
 
                 const diffTone = (d: number | null) =>
                   d === null ? 'text-[#aba8a4]'
@@ -2134,7 +2213,7 @@ export default function POSPage() {
                           <p className="text-sm font-semibold text-[#f4efeb]">Cash</p>
                           {/* The running sum: where "expected" comes from. */}
                           <p className="mt-0.5 text-[11px] leading-relaxed text-[#aba8a4]">
-                            Float {formatCurrency(drawer.openingFloat)}
+                            Opening {formatCurrency(drawer.openingFloat)}
                             {' · '}Sales + {formatCurrency(drawer.cashRevenue)}
                             {drawer.cashIn > 0 && <> {' · '}In + {formatCurrency(drawer.cashIn)}</>}
                             {drawer.cashOut > 0 && <> {' · '}Out − {formatCurrency(drawer.cashOut)}</>}
@@ -2200,41 +2279,70 @@ export default function POSPage() {
                       )}
                     </div>
 
-                    {/* ── MoMo ── only when the shift took any */}
-                    {sessionStats.momoRevenue > 0 && (
-                      <div className="rounded-2xl border border-[#2b2f2b] bg-[#191c19] p-4 space-y-2">
+                    {/* ── MoMo ── opening wallet + sales, PrimeTijara style */}
+                    {showMomo && (
+                      <div className="rounded-2xl border border-[#2b2f2b] bg-[#191c19] p-4 space-y-3">
                         <div className="flex items-start justify-between gap-3">
-                          <div>
+                          <div className="min-w-0">
                             <p className="text-sm font-semibold text-[#f4efeb]">MoMo</p>
-                            <p className="mt-0.5 text-[11px] text-[#aba8a4]">Payments + {formatCurrency(sessionStats.momoRevenue)}</p>
+                            <p className="mt-0.5 text-[11px] leading-relaxed text-[#aba8a4]">
+                              {wallet.openingRecorded
+                                ? <>Opening {formatCurrency(wallet.openingMomo ?? 0)}{' · '}Sales + {formatCurrency(wallet.momoRevenue)}</>
+                                : <>Sales + {formatCurrency(wallet.momoRevenue)} <span className="text-yellow-400/80">(opening not recorded)</span></>}
+                            </p>
                           </div>
-                          <span className={`shrink-0 text-xs font-bold ${diffTone(momoDiff)}`}>
-                            {momoDiff === null ? 'Not counted yet' : differenceLabel(momoDiff, formatCurrency)}
-                          </span>
+                          <p className="shrink-0 text-right font-mono text-base font-bold tabular-nums text-[#f4efeb]">
+                            {formatCurrency(wallet.expected)}
+                          </p>
                         </div>
+
+                        <div className="grid grid-cols-3 gap-2 rounded-xl bg-[#111311] p-3 text-center">
+                          <div>
+                            <p className="text-[10px] uppercase tracking-wide text-[#aba8a4]">Expected in wallet</p>
+                            <p className="font-mono text-sm font-bold tabular-nums text-[#f4efeb]">{formatCurrency(wallet.expected)}</p>
+                          </div>
+                          <div>
+                            <p className="text-[10px] uppercase tracking-wide text-[#aba8a4]">Counted</p>
+                            <p className="font-mono text-sm font-bold tabular-nums text-[#f4efeb]">
+                              {momoTouched ? formatCurrency(parseFloat(closingMomoStr) || 0) : '—'}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-[10px] uppercase tracking-wide text-[#aba8a4]">Difference</p>
+                            <p className={`font-mono text-sm font-bold tabular-nums ${diffTone(momoDiff)}`}>
+                              {momoDiff === null ? '—' : differenceLabel(momoDiff, formatCurrency)}
+                            </p>
+                          </div>
+                        </div>
+
                         <p className="text-center font-mono text-2xl font-black tabular-nums text-[#f4efeb]">
-                          {formatCurrency(parseFloat(closingMomoStr) || 0)}
+                          {momoTouched ? formatCurrency(parseFloat(closingMomoStr) || 0) : '—'}
                         </p>
-                        <Numpad value={closingMomoStr} onChange={setClosingMomoStr}/>
+                        <Numpad value={closingMomoStr || '0'} onChange={setClosingMomoStr}/>
+                        <p className="text-center text-[11px] text-[#aba8a4]">
+                          Check the MoMo app balance and enter what is there now.
+                        </p>
                       </div>
                     )}
 
-                    {/* ── Bolt ── */}
+                    {/* ── Bolt ── sales reference only */}
                     {sessionStats.boltRevenue > 0 && (
                       <div className="rounded-2xl border border-[#2b2f2b] bg-[#191c19] p-4 space-y-2">
                         <div className="flex items-start justify-between gap-3">
                           <div>
                             <p className="text-sm font-semibold text-[#f4efeb]">Bolt</p>
-                            <p className="mt-0.5 text-[11px] text-[#aba8a4]">Payments + {formatCurrency(sessionStats.boltRevenue)}</p>
+                            <p className="mt-0.5 text-[11px] text-[#aba8a4]">
+                              Sales + {formatCurrency(sessionStats.boltRevenue)} · payout, not counted in till
+                            </p>
                           </div>
                           <span className={`shrink-0 text-xs font-bold ${diffTone(boltDiff)}`}>
-                            {boltDiff === null ? 'Not counted yet' : differenceLabel(boltDiff, formatCurrency)}
+                            {boltDiff === null ? 'Not checked yet' : differenceLabel(boltDiff, formatCurrency)}
                           </span>
                         </div>
                         <p className="text-center font-mono text-2xl font-black tabular-nums text-[#f4efeb]">
                           {formatCurrency(parseFloat(closingBoltStr) || 0)}
                         </p>
-                        <Numpad value={closingBoltStr} onChange={setClosingBoltStr}/>
+                        <Numpad value={closingBoltStr || '0'} onChange={setClosingBoltStr}/>
                       </div>
                     )}
 
@@ -2316,12 +2424,25 @@ export default function POSPage() {
             /* No active session — all authenticated users can open a new shift */
             <div className="bg-[#191c19] border border-[#2b2f2b] rounded-2xl p-4 space-y-4">
               <div className="flex items-center gap-2 text-[#aba8a4]"><Lock size={16}/><span className="font-semibold text-sm text-[#f4efeb]">No Active Session</span></div>
-              <p className="text-xs text-[#aba8a4]">Open a new shift to start taking orders.</p>
-              <div>
-                <p className="text-xs text-[#aba8a4] mb-2">Opening Cash Float</p>
-                <p className="text-2xl font-bold text-[#5ecf4f] font-mono mb-3">{formatCurrency(parseFloat(openingFloatStr) || 0)}</p>
-                <Numpad value={openingFloatStr} onChange={setOpeningFloatStr}/>
+              <p className="text-xs text-[#aba8a4]">Count cash in the till and the MoMo wallet, then open a shift.</p>
+              <div className="grid grid-cols-2 gap-2">
+                <button type="button" onClick={() => setOpeningField('cash')}
+                  className={`rounded-2xl border p-3 text-left ${openingField === 'cash' ? 'border-[#349f2d]/40 bg-[#349f2d]/10' : 'border-[#2b2f2b] bg-[#111311]'}`}>
+                  <p className="text-[10px] uppercase tracking-wide text-[#aba8a4]">Cash in till</p>
+                  <p className="mt-1 font-mono text-lg font-bold tabular-nums text-[#5ecf4f]">{formatCurrency(parseFloat(openingFloatStr) || 0)}</p>
+                </button>
+                <button type="button" onClick={() => setOpeningField('momo')}
+                  className={`rounded-2xl border p-3 text-left ${openingField === 'momo' ? 'border-[#349f2d]/40 bg-[#349f2d]/10' : 'border-[#2b2f2b] bg-[#111311]'}`}>
+                  <p className="text-[10px] uppercase tracking-wide text-[#aba8a4]">MoMo wallet</p>
+                  <p className="mt-1 font-mono text-lg font-bold tabular-nums text-[#5ecf4f]">
+                    {openingMomoStr === '' ? '—' : formatCurrency(parseFloat(openingMomoStr) || 0)}
+                  </p>
+                </button>
               </div>
+              <Numpad
+                value={openingField === 'cash' ? openingFloatStr : (openingMomoStr || '0')}
+                onChange={openingField === 'cash' ? setOpeningFloatStr : setOpeningMomoStr}
+              />
               <button onClick={() => openSession()} disabled={sessionLoading}
                 className="w-full bg-[#349f2d] hover:bg-[#287e22] disabled:opacity-40 text-white rounded-xl py-3 font-semibold text-sm transition-colors">
                 {sessionLoading ? 'Opening…' : 'Open Shift'}

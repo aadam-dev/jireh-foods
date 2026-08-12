@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/src/lib/auth';
 import { prisma } from '@/src/lib/prisma';
 import { classifyRegisterSession } from '@/src/lib/session-utils';
-import { drawerTotals } from '@/src/lib/cash';
+import { drawerTotals, walletTotals } from '@/src/lib/cash';
 import { UserRole } from '@prisma/client';
 
 // Break down orders into per-method revenue, handling SPLIT orders correctly.
@@ -125,6 +125,13 @@ export async function POST(req: NextRequest) {
 
   const body = await req.json();
   const openingFloat = parseFloat(body.openingFloat ?? '0');
+  /* Null, not 0, when the cashier skips MoMo. A zero we invented looks
+     authoritative and quietly makes the first close wrong by whatever was
+     actually in the wallet. */
+  const openingMomo =
+    body.openingMomo === undefined || body.openingMomo === null || body.openingMomo === ''
+      ? null
+      : parseFloat(body.openingMomo);
   const forceCloseStale = body.forceCloseStale === true;
 
   try {
@@ -163,6 +170,7 @@ export async function POST(req: NextRequest) {
         data: {
           openedBy: session.user.id!,
           openingFloat,
+          openingMomo,
           status: 'OPEN',
           notes: body.notes ?? null,
         },
@@ -238,9 +246,11 @@ export async function PATCH(req: NextRequest) {
   });
 
   const expectedCash = drawer.expected;
+  const wallet = walletTotals({ openingMomo: pos.openingMomo, momoRevenue });
+  const expectedMomo = wallet.expected;
   const actualCash = parseFloat(closingCash ?? '0');
-  const actualMomo = closingMomo != null ? parseFloat(closingMomo) : momoRevenue;
-  const actualBolt = closingBolt != null ? parseFloat(closingBolt) : boltRevenue;
+  const actualMomo = closingMomo != null && closingMomo !== '' ? parseFloat(closingMomo) : expectedMomo;
+  const actualBolt = closingBolt != null && closingBolt !== '' ? parseFloat(closingBolt) : boltRevenue;
 
   const revenueByMethod: Record<string, number> = {
     CASH: cashRevenue, MOMO: momoRevenue, BOLT_FOOD: boltRevenue,
@@ -260,6 +270,8 @@ export async function PATCH(req: NextRequest) {
       closingCash: actualCash,
       closingMomo: actualMomo,
       closingBolt: actualBolt,
+      expectedCash,
+      expectedMomo,
       cashCount: cashCount ?? undefined,
       status: 'CLOSED',
       notes: notes ?? null,
@@ -279,6 +291,7 @@ export async function PATCH(req: NextRequest) {
       // The printed shift report shows the running sum, so it has to carry the
       // movements that produced the expected figure.
       openingFloat: Number(pos.openingFloat),
+      openingMomo: wallet.openingMomo,
       cashIn: drawer.cashIn,
       cashOut: drawer.cashOut,
       cashMovements: movements.map(m => ({
@@ -290,9 +303,10 @@ export async function PATCH(req: NextRequest) {
         at: m.createdAt,
       })),
       cash:  { expected: expectedCash,  actual: actualCash, discrepancy: actualCash - expectedCash },
-      momo:  { expected: momoRevenue,   actual: actualMomo, discrepancy: actualMomo - momoRevenue },
+      momo:  { expected: expectedMomo,  actual: actualMomo, discrepancy: actualMomo - expectedMomo },
       bolt:  { expected: boltRevenue,   actual: actualBolt, discrepancy: actualBolt - boltRevenue },
       expectedCash,
+      expectedMomo,
       closingCash: actualCash,
       discrepancy: actualCash - expectedCash,
     },

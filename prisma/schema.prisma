@@ -155,11 +155,19 @@ model PosSession {
   openedAt     DateTime      @default(now())
   closedAt     DateTime?
   openingFloat Decimal       @db.Decimal(10, 2)
+  /**
+   * MoMo wallet balance at open. Null means "never recorded" — not the same as
+   * zero. Expected MoMo at close is openingMomo + MoMo sales when this is set.
+   */
+  openingMomo  Decimal?      @db.Decimal(10, 2)
   closingCash  Decimal?      @db.Decimal(10, 2)
   // Counted at close alongside cash — previously computed for the summary and
   // then discarded, so a MoMo shortfall left no record after the shift ended.
   closingMomo  Decimal?      @db.Decimal(10, 2)
   closingBolt  Decimal?      @db.Decimal(10, 2)
+  /** Snapshot of what the till should have held when the shift closed. */
+  expectedCash Decimal?      @db.Decimal(10, 2)
+  expectedMomo Decimal?      @db.Decimal(10, 2)
   /**
    * Denomination breakdown from the drawer count: { "50": 3, "20": 11, … }
    */

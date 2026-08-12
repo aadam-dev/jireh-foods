@@ -7,6 +7,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   drawerTotals, expectedInDrawer, drawerDifference, differenceLabel, tallyMovements,
+  walletTotals,
 } from './cash';
 
 const fmt = (n: number) => `GH₵${n.toFixed(2)}`;
@@ -87,4 +88,19 @@ test('sub-pesewa noise reads as Exact, not as a difference', () => {
 test('tallyMovements ignores an empty or missing list', () => {
   assert.deepEqual(tallyMovements([]), { cashIn: 0, cashOut: 0 });
   assert.deepEqual(tallyMovements(null), { cashIn: 0, cashOut: 0 });
+});
+
+test('MoMo expected is opening wallet plus MoMo sales', () => {
+  const w = walletTotals({ openingMomo: 80, momoRevenue: 120 });
+  assert.equal(w.expected, 200);
+  assert.equal(w.openingRecorded, true);
+  assert.equal(w.openingMomo, 80);
+});
+
+test('unrecorded MoMo opening is not treated as zero', () => {
+  const w = walletTotals({ openingMomo: null, momoRevenue: 50 });
+  assert.equal(w.openingRecorded, false);
+  assert.equal(w.openingMomo, null);
+  // Still verifiable as session sales alone.
+  assert.equal(w.expected, 50);
 });
