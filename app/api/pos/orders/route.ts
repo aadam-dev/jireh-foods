@@ -444,11 +444,15 @@ export async function GET(req: NextRequest) {
     where: {
       // The open rail covers every channel — a WhatsApp order still has to be
       // cooked and settled. Today's register list stays POS-only.
+      // When scoped to a sessionId (shift report / till copy), drop the date
+      // bound — a shift that ran past midnight still has to print every sale.
       ...(openOnly ? {} : { source: 'POS' as const }),
       isDemo: false,
       ...(openOnly
         ? { paymentStatus: 'PENDING', status: { notIn: ['COMPLETED', 'CANCELLED'] } }
-        : { createdAt: { gte: today } }),
+        : sessionId
+          ? {}
+          : { createdAt: { gte: today } }),
       ...(staffId ? { staffId } : {}),
       ...(sessionId ? { sessionId } : {}),
     },
