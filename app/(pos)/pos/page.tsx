@@ -31,6 +31,11 @@ import { drawerTotals, drawerDifference, differenceLabel, walletTotals } from '@
 import { ActionMenu, type ActionMenuItem } from '@/src/components/ui/ActionMenu';
 import { computeOrderTotals, changeDue } from '@/src/lib/money';
 import { DEVELOPER_CREDIT, RECEIPT_CREDIT_LINES } from '@/src/lib/developer-credit';
+import {
+  aggregateItemsSold,
+  paymentLabelForSale,
+  sessionSalesForReport,
+} from '@/src/lib/session-report';
 
 /* ─── Types ─────────────────────────────────────────────────────────── */
 /* One cart line. Keyed by lineId, not menuItemId: the same dish ordered two
@@ -581,37 +586,46 @@ function Receipt80mm({
 }
 
 /* ─── Shift report (80mm) ────────────────────────────────────────────
-   The same paper twice: mid-shift it is a read-out of where the drawer stands
-   ("Shift so far"); after closing it is the record of what was counted. Both
-   were previously impossible to print — the Print button on the closed-shift
-   summary dumped the on-screen card through the admin A4 stylesheet. */
+   Cashier keep-a-copy for reconciliation — PrimeTijara's "Print current
+   sales". Totals by tender, every sale with its lines, items sold, then
+   what the drawer / MoMo wallet should hold. Mid-shift and post-close both
+   print this same paper. */
 function ShiftReport80mm({
   shift,
   stats,
   drawer,
+  wallet,
   movements,
   counted,
+  sales,
+  operatorName,
   closingNote,
   businessName = 'JIREH NATURAL FOODS',
+  businessAddress,
   final = false,
   preview = false,
 }: {
   shift: PosSession;
   stats: SessionStats;
   drawer: { openingFloat: number; cashIn: number; cashOut: number; expected: number };
+  wallet: { openingMomo: number | null; momoRevenue: number; expected: number; openingRecorded: boolean };
   movements: CashMovement[];
   /** Null while the drawer has not been counted — an X report mid-shift. */
   counted: number | null;
+  sales: ReturnType<typeof sessionSalesForReport>;
+  operatorName?: string;
   closingNote?: string;
   businessName?: string;
+  businessAddress?: string;
   final?: boolean;
   preview?: boolean;
 }) {
   const dash = 'border-t border-dashed border-black';
   const diff = drawerDifference(counted, drawer.expected);
+  const itemsSold = aggregateItemsSold(sales);
   const row = (label: string, value: string, bold = false) => (
-    <div className={`flex justify-between ${bold ? 'font-bold' : ''}`}>
-      <span>{label}</span><span>{value}</span>
+    <div className={`flex justify-between gap-2 ${bold ? 'font-bold' : ''}`}>
+      <span className="min-w-0 truncate">{label}</span><span className="shrink-0">{value}</span>
     </div>
   );
 
@@ -626,22 +640,65 @@ function ShiftReport80mm({
     >
       <div className="text-center">
         <div className="font-bold text-[13px] tracking-wide">{businessName.toUpperCase()}</div>
-        <div className="text-[10px] font-bold">{final ? 'SHIFT REPORT' : 'SHIFT SO FAR'}</div>
+        {businessAddress && <div className="text-[9px] text-gray-600">{businessAddress}</div>}
+        <div className="text-[10px] font-bold mt-0.5">{final ? 'SHIFT REPORT' : 'SESSION REPORT'}</div>
       </div>
 
       <div className={`${dash} mt-2 pt-1.5 space-y-0.5`}>
         {row('Opened', new Date(shift.openedAt).toLocaleString('en-GH', { dateStyle: 'short', timeStyle: 'short' }))}
         {final && row('Closed', new Date().toLocaleString('en-GH', { dateStyle: 'short', timeStyle: 'short' }))}
-        {row('Cashier', shift.openedByUser?.name ?? '—')}
+        {row('Opened by', shift.openedByUser?.name ?? '—')}
+        {operatorName && row('Printed by', operatorName)}
         {!final && row('Printed', new Date().toLocaleString('en-GH', { dateStyle: 'short', timeStyle: 'short' }))}
       </div>
 
       <div className={`${dash} mt-2 pt-1.5 space-y-0.5`}>
-        <div className="font-bold">SALES</div>
-        {row('Cash', formatCurrency(stats.cashRevenue))}
-        {stats.momoRevenue > 0 && row('MoMo', formatCurrency(stats.momoRevenue))}
-        {stats.boltRevenue > 0 && row('Bolt', formatCurrency(stats.boltRevenue))}
-        {row('Total', formatCurrency(stats.revenue), true)}
+        <div className="font-bold">TOTALS</div>
+        {row('Sales count', String(sales.length))}
+        {row('Cash taken', formatCurrency(stats.cashRevenue))}
+        {row('MoMo', formatCurrency(stats.momoRevenue))}
+        {(stats.boltRevenue > 0 || final) && row('Bolt', formatCurrency(stats.boltRevenue))}
+        {row('Total sales', formatCurrency(stats.revenue), true)}
+      </div>
+
+      <div className={`${dash} mt-2 pt-1.5 space-y-1`}>
+        <div className="font-bold">SALES DETAIL</div>
+        {sales.length === 0 ? (
+          <div className="text-gray-600">No sales yet</div>
+        ) : (
+          sales.map(sale => (
+            <div key={sale.id} className="pb-1 border-b border-dotted border-gray-400 last:border-0">
+              <div className="flex justify-between gap-2 font-semibold">
+                <span className="min-w-0 truncate">
+                  {sale.orderNumber}
+                  {' · '}
+                  {cleanName(sale.customerName) || 'Walk-in'}
+                  {' · '}
+                  {paymentLabelForSale(sale)}
+                </span>
+                <span className="shrink-0">{formatCurrency(sale.total)}</span>
+              </div>
+              {sale.lines.map((line, i) => (
+                <div key={`${sale.id}-${i}`} className="pl-1 text-[10px] text-gray-700">
+                  {line.quantity}× {line.name}
+                  {line.modifiers && line.modifiers.length > 0 && (
+                    <span> ({line.modifiers.map(m => m.name).join(', ')})</span>
+                  )}
+                  {' @ '}{formatCurrency(line.price)}
+                </div>
+              ))}
+            </div>
+          ))
+        )}
+      </div>
+
+      <div className={`${dash} mt-2 pt-1.5 space-y-0.5`}>
+        <div className="font-bold">ITEMS SOLD</div>
+        {itemsSold.length === 0 ? (
+          <div className="text-gray-600">Nothing sold yet</div>
+        ) : (
+          itemsSold.map(item => row(item.name, `×${item.qtySold}`))
+        )}
       </div>
 
       {movements.length > 0 && (
@@ -657,7 +714,7 @@ function ShiftReport80mm({
       )}
 
       <div className={`${dash} mt-2 pt-1.5 space-y-0.5`}>
-        <div className="font-bold">DRAWER</div>
+        <div className="font-bold">CASH DRAWER</div>
         {row('Opening float', formatCurrency(drawer.openingFloat))}
         {row('Cash sales', `+ ${formatCurrency(stats.cashRevenue)}`)}
         {drawer.cashIn > 0 && row('Cash in', `+ ${formatCurrency(drawer.cashIn)}`)}
@@ -667,6 +724,17 @@ function ShiftReport80mm({
         {row('Difference', differenceLabel(diff, formatCurrency), true)}
       </div>
 
+      {(wallet.openingRecorded || wallet.momoRevenue > 0) && (
+        <div className={`${dash} mt-2 pt-1.5 space-y-0.5`}>
+          <div className="font-bold">MOMO WALLET</div>
+          {wallet.openingRecorded
+            ? row('Opening balance', formatCurrency(wallet.openingMomo ?? 0))
+            : row('Opening balance', 'not recorded')}
+          {row('MoMo sales', `+ ${formatCurrency(wallet.momoRevenue)}`)}
+          {row('Expected in wallet', formatCurrency(wallet.expected), true)}
+        </div>
+      )}
+
       {closingNote?.trim() && (
         <div className={`${dash} mt-2 pt-1.5`}>
           <div className="font-bold">NOTE</div>
@@ -675,7 +743,8 @@ function ShiftReport80mm({
       )}
 
       <div className={`${dash} mt-2 pt-1.5 text-center text-[10px]`}>
-        <div>Signature ______________________</div>
+        <div>Keep this copy for handover.</div>
+        <div className="mt-1">Signature ______________________</div>
       </div>
     </div>
   );
@@ -956,7 +1025,8 @@ export default function POSPage() {
   };
 
   const fetchOrders = async () => {
-    const url = posSession ? `/api/pos/orders?sessionId=${posSession.id}` : '/api/pos/orders';
+    const sid = (posSession ?? pendingSession)?.id ?? posSessionRef.current?.id;
+    const url = sid ? `/api/pos/orders?sessionId=${sid}` : '/api/pos/orders';
     const res = await fetch(url);
     if (res.ok) setTodayOrders(await res.json());
   };
@@ -2068,13 +2138,17 @@ export default function POSPage() {
           </div>
         )}
 
-        {/* Shift report — read on screen, or print the same 80mm paper */}
+        {/* Session report — tender totals, every sale, items sold, drawer.
+            Printable 80mm keep-a-copy for handover / reconciliation. */}
         {shiftReport && (posSession ?? pendingSession) && (
           <div className="fixed inset-0 z-[70] flex items-end justify-center sm:items-center">
             <div className="absolute inset-0 bg-black/70 backdrop-blur-sm print:hidden" onClick={() => setShiftReport(null)} />
             <div className="relative flex max-h-[90vh] w-full flex-col rounded-t-3xl border-t border-[#2b2f2b] bg-[#191c19] pb-[env(safe-area-inset-bottom)] sm:max-w-md sm:rounded-3xl sm:border print:contents">
               <div className="shrink-0 border-b border-[#2b2f2b] px-5 py-4 print:hidden">
-                <p className="text-base font-bold text-[#f4efeb]">Shift so far</p>
+                <p className="text-base font-bold text-[#f4efeb]">Session report</p>
+                <p className="mt-0.5 text-xs text-[#aba8a4]">
+                  Sales breakdown for reconciliation — print a copy to keep.
+                </p>
               </div>
               <div className="flex-1 overflow-y-auto p-4">
                 {(() => {
@@ -2084,19 +2158,22 @@ export default function POSPage() {
                     cashRevenue: sessionStats.cashRevenue,
                     movements: cashMovements,
                   });
+                  const wallet = walletTotals({
+                    openingMomo: shift.openingMomo,
+                    momoRevenue: sessionStats.momoRevenue,
+                  });
                   const counted = Object.keys(cashCounts).length > 0 ? denominationTotal(cashCounts) : null;
+                  const sales = sessionSalesForReport(todayOrders);
+                  const reportProps = {
+                    shift, stats: sessionStats, drawer, wallet, movements: cashMovements,
+                    counted, sales, operatorName: user?.name as string | undefined,
+                    closingNote, businessName: receiptSettings.businessName,
+                    businessAddress: receiptSettings.businessAddress,
+                  };
                   return (
                     <>
-                      <ShiftReport80mm
-                        preview shift={shift} stats={sessionStats} drawer={drawer}
-                        movements={cashMovements} counted={counted}
-                        closingNote={closingNote} businessName={receiptSettings.businessName}
-                      />
-                      <ShiftReport80mm
-                        shift={shift} stats={sessionStats} drawer={drawer}
-                        movements={cashMovements} counted={counted}
-                        closingNote={closingNote} businessName={receiptSettings.businessName}
-                      />
+                      <ShiftReport80mm preview {...reportProps} />
+                      <ShiftReport80mm {...reportProps} />
                     </>
                   );
                 })()}
@@ -2108,7 +2185,7 @@ export default function POSPage() {
                 </button>
                 <button onClick={() => window.print()}
                   className="min-h-[48px] flex-[1.4] rounded-xl bg-[#349f2d] text-sm font-bold text-white">
-                  Print
+                  Print copy
                 </button>
               </div>
             </div>
@@ -2407,9 +2484,9 @@ export default function POSPage() {
                         className="min-h-[48px] flex-1 rounded-xl border border-[#2b2f2b] text-sm font-semibold text-[#aba8a4] transition hover:text-[#f4efeb]">
                         Not yet
                       </button>
-                      <button onClick={() => setShiftReport('x')}
+                      <button onClick={() => { fetchOrders(); fetchSession(); setShiftReport('x'); }}
                         className="min-h-[48px] flex-1 rounded-xl border border-[#2b2f2b] text-sm font-semibold text-[#aba8a4] transition hover:text-[#f4efeb]">
-                        Print summary
+                        Session report
                       </button>
                       <button onClick={() => closeSession()} disabled={sessionLoading}
                         className="min-h-[48px] flex-[1.4] rounded-xl bg-red-600 text-sm font-bold text-white transition hover:bg-red-700 disabled:opacity-40">
@@ -2463,11 +2540,15 @@ export default function POSPage() {
   const registerMenuItems: ActionMenuItem[] = [
     {
       id: 'shift-sales',
-      label: 'Shift sales',
-      hint: hasShift ? 'View and print' : 'No shift open',
+      label: 'Session report',
+      hint: hasShift ? 'Sales breakdown · print a copy' : 'No shift open',
       icon: <Receipt size={15} />,
       disabled: !hasShift,
-      onSelect: () => setShiftReport('x'),
+      onSelect: () => {
+        fetchOrders();
+        fetchSession();
+        setShiftReport('x');
+      },
     },
     {
       id: 'count-drawer',
