@@ -2,6 +2,33 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ── App viewport height ───────────────────────────────────────────────────
+   100vh on a phone is the viewport with the browser chrome *retracted*, not
+   the space you can actually see. A full-height flex column sized that way is
+   taller than the screen, so its last child — the POS tab bar — is pushed
+   behind the URL bar, and `overflow-hidden` means you cannot scroll to it.
+   Installed to the home screen it looks right; opened in Safari it is cut off.
+
+   Not Tailwind's h-dvh: that emits `height: 100dvh` alone, so a browser that
+   does not know the unit drops the declaration and the element collapses to
+   auto — worse than the bug. Two declarations, older engines keep the first. */
+.h-app {
+  height: 100vh;
+  height: 100dvh;
+}
+
+.max-h-sheet {
+  max-height: 88vh;
+  max-height: 88dvh;
+}
+
+/* Receipt preview on the success screen — capped so it cannot crowd out the
+   New Sale button on a short phone. */
+.max-h-preview {
+  max-height: 46vh;
+  max-height: 46dvh;
+}
+
 :root {
   --background: #111311;
   --foreground: #f4efeb;

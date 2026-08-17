@@ -275,7 +275,7 @@ function ModifierSheet({
   return (
     <div className="fixed inset-0 z-[60] flex items-end justify-center sm:items-center">
       <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onCancel} />
-      <div className="relative flex max-h-[88vh] w-full flex-col rounded-t-3xl border-t border-[#2b2f2b] bg-[#191c19] sm:max-w-md sm:rounded-3xl sm:border">
+      <div className="relative flex max-h-sheet w-full flex-col rounded-t-3xl border-t border-[#2b2f2b] bg-[#191c19] sm:max-w-md sm:rounded-3xl sm:border">
         <div className="shrink-0 border-b border-[#2b2f2b] px-5 py-4">
           <p className="text-base font-bold text-[#f4efeb]">{item.name}</p>
           <p className="mt-0.5 text-xs text-[#aba8a4]">{formatCurrency(item.price)} base</p>
@@ -1481,7 +1481,7 @@ export default function POSPage() {
     const isOfflineOrder = !!lastOrder._offline;
     const isUnpaidTicket = lastOrder.paymentMethod === 'UNPAID' || lastOrder.paymentStatus === 'PENDING';
     return (
-      <div className="h-screen bg-[#111311] flex items-center justify-center p-4">
+      <div className="h-full bg-[#111311] flex items-center justify-center p-4">
         {/* screen-only success UI — hidden when printing so only the receipt shows */}
         <div className="text-center max-w-sm w-full print:hidden">
           <div className={`w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 ${
@@ -1546,7 +1546,7 @@ export default function POSPage() {
               </div>
             </div>
           ) : (
-            <div className="mb-6 max-h-[46vh] overflow-y-auto rounded-lg">
+            <div className="mb-6 max-h-preview overflow-y-auto rounded-lg">
               <Receipt80mm
                 preview
                 order={lastOrder}
@@ -1592,7 +1592,7 @@ export default function POSPage() {
     const discColor = (d: number) => Math.abs(d) < 0.01 ? 'text-[#5ecf4f]' : d > 0 ? 'text-blue-400' : 'text-red-400';
     const discLabel = (d: number) => Math.abs(d) < 0.01 ? '✓ Exact' : `${d > 0 ? '+' : ''}GH₵${Math.abs(d).toFixed(2)} ${d > 0 ? 'over' : 'short'}`;
     return (
-      <div className="h-screen bg-[#111311] flex items-center justify-center p-4 overflow-y-auto">
+      <div className="h-full bg-[#111311] flex items-center justify-center p-4 overflow-y-auto">
         <div className="max-w-sm w-full bg-[#191c19] border border-[#2b2f2b] rounded-3xl p-6 my-4">
           <h2 className="text-xl font-bold text-[#f4efeb] mb-1 text-center">Shift Closed</h2>
           <p className="text-center text-sm text-[#aba8a4] mb-4">{closingSummary.orderCount} orders · {formatCurrency(closingSummary.totalRevenue)} total</p>
@@ -1655,7 +1655,7 @@ export default function POSPage() {
   /* ─── Auth gate ──────────────────────────────────────────────────── */
   if (authStatus !== 'authenticated') {
     return (
-      <div className="h-screen bg-[#111311] flex items-center justify-center">
+      <div className="h-full bg-[#111311] flex items-center justify-center">
         <div className="text-center">
           <div className="w-10 h-10 rounded-full border-2 border-[#349f2d] border-t-transparent animate-spin mx-auto mb-3"/>
           <p className="text-sm text-[#aba8a4]">Loading POS…</p>
@@ -1670,7 +1670,7 @@ export default function POSPage() {
   const canManageStale = true;
 
   const registerGateShell = (children: ReactNode) => (
-    <div className="h-screen bg-[#111311] flex flex-col overflow-hidden">
+    <div className="h-full bg-[#111311] flex flex-col overflow-hidden">
       <header className="shrink-0 flex items-center justify-between px-4 py-3 bg-[#0a0b0a] border-b border-[#2b2f2b]">
         <div className="flex items-center gap-2">
           <div className="w-7 h-7 rounded-lg overflow-hidden border border-[#349f2d]/40 bg-white flex-shrink-0">
@@ -1852,7 +1852,7 @@ export default function POSPage() {
   /* ─── Payment screen ─────────────────────────────────────────────── */
   if (view === 'payment') {
     return (
-      <div className="h-screen bg-[#111311] flex flex-col overflow-hidden">
+      <div className="h-full bg-[#111311] flex flex-col overflow-hidden">
         <header className="shrink-0 flex items-center gap-3 px-4 py-3 bg-[#0a0b0a] border-b border-[#2b2f2b]">
           <button onClick={() => setView('register')} className="p-2 rounded-xl text-[#aba8a4] hover:text-[#f4efeb] border border-[#2b2f2b] hover:border-[#404540] transition">
             <X size={16}/>
@@ -2053,7 +2053,7 @@ export default function POSPage() {
         {countSheetOpen && (
           <div className="fixed inset-0 z-[70] flex items-end justify-center sm:items-center">
             <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setCountSheetOpen(false)} />
-            <div className="relative flex max-h-[88vh] w-full flex-col rounded-t-3xl border-t border-[#2b2f2b] bg-[#191c19] pb-[env(safe-area-inset-bottom)] sm:max-w-md sm:rounded-3xl sm:border">
+            <div className="relative flex max-h-sheet w-full flex-col rounded-t-3xl border-t border-[#2b2f2b] bg-[#191c19] pb-[env(safe-area-inset-bottom)] sm:max-w-md sm:rounded-3xl sm:border">
               <div className="shrink-0 border-b border-[#2b2f2b] px-5 py-4">
                 <p className="text-base font-bold text-[#f4efeb]">Count the drawer</p>
                 <p className="mt-0.5 text-xs text-[#aba8a4]">Tap + for each note and coin. The total adds itself up.</p>
@@ -2087,7 +2087,7 @@ export default function POSPage() {
         {cashSheet && (
           <div className="fixed inset-0 z-[70] flex items-end justify-center sm:items-center">
             <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={() => !cashSaving && setCashSheet(null)} />
-            <div className="relative flex max-h-[88vh] w-full flex-col rounded-t-3xl border-t border-[#2b2f2b] bg-[#191c19] pb-[env(safe-area-inset-bottom)] sm:max-w-md sm:rounded-3xl sm:border">
+            <div className="relative flex max-h-sheet w-full flex-col rounded-t-3xl border-t border-[#2b2f2b] bg-[#191c19] pb-[env(safe-area-inset-bottom)] sm:max-w-md sm:rounded-3xl sm:border">
               <div className="shrink-0 border-b border-[#2b2f2b] px-5 py-4">
                 <p className="text-base font-bold text-[#f4efeb]">
                   {cashSheet === 'IN' ? 'Cash into the drawer' : 'Cash out of the drawer'}
@@ -2143,7 +2143,7 @@ export default function POSPage() {
         {shiftReport && (posSession ?? pendingSession) && (
           <div className="fixed inset-0 z-[70] flex items-end justify-center sm:items-center">
             <div className="absolute inset-0 bg-black/70 backdrop-blur-sm print:hidden" onClick={() => setShiftReport(null)} />
-            <div className="relative flex max-h-[90vh] w-full flex-col rounded-t-3xl border-t border-[#2b2f2b] bg-[#191c19] pb-[env(safe-area-inset-bottom)] sm:max-w-md sm:rounded-3xl sm:border print:contents">
+            <div className="relative flex max-h-sheet w-full flex-col rounded-t-3xl border-t border-[#2b2f2b] bg-[#191c19] pb-[env(safe-area-inset-bottom)] sm:max-w-md sm:rounded-3xl sm:border print:contents">
               <div className="shrink-0 border-b border-[#2b2f2b] px-5 py-4 print:hidden">
                 <p className="text-base font-bold text-[#f4efeb]">Session report</p>
                 <p className="mt-0.5 text-xs text-[#aba8a4]">
@@ -2198,7 +2198,7 @@ export default function POSPage() {
   if (view === 'session') {
     const shiftSession = posSession ?? pendingSession;
     return (
-      <div className="h-screen bg-[#111311] flex flex-col overflow-hidden">
+      <div className="h-full bg-[#111311] flex flex-col overflow-hidden">
         <header className="shrink-0 flex items-center gap-3 px-4 py-3 bg-[#0a0b0a] border-b border-[#2b2f2b]">
           <button onClick={() => setView('register')} className="p-2 rounded-xl text-[#aba8a4] hover:text-[#f4efeb] border border-[#2b2f2b] transition">
             <X size={16}/>
@@ -2622,7 +2622,7 @@ export default function POSPage() {
   /* ─── Orders history view ────────────────────────────────────────── */
   if (view === 'orders') {
     return (
-      <div className="h-screen bg-[#111311] flex flex-col overflow-hidden">
+      <div className="h-full bg-[#111311] flex flex-col overflow-hidden">
         <header className="shrink-0 flex items-center gap-3 px-4 py-3 bg-[#0a0b0a] border-b border-[#2b2f2b]">
           <button onClick={() => setView('register')} className="p-2 rounded-xl text-[#aba8a4] hover:text-[#f4efeb] border border-[#2b2f2b] transition">
             <X size={16}/>
@@ -2665,7 +2665,7 @@ export default function POSPage() {
 
   /* ─── Main Register View ─────────────────────────────────────────── */
   return (
-    <div className="h-screen flex flex-col bg-[#111311] overflow-hidden">
+    <div className="h-full flex flex-col bg-[#111311] overflow-hidden">
 
       {/* ── Offline / sync banner — shown when device has no internet or pending orders ── */}
       {(!isOnline || pendingCount > 0 || failedSyncCount > 0) && (
@@ -3049,16 +3049,22 @@ export default function POSPage() {
       </div>
 
       {/* Mobile bottom tab nav — only visible on small screens, replaces header session/orders buttons */}
-      <nav style={{ paddingBottom: "env(safe-area-inset-bottom)" }} className="md:hidden shrink-0 flex border-t border-[#2b2f2b] bg-[#0a0b0a]">
+      {/* The bottom inset keeps the labels clear of the home indicator; the
+          min-height keeps the buttons a full touch target on a device where
+          that inset is large. */}
+      <nav
+        style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
+        className="md:hidden shrink-0 flex border-t border-[#2b2f2b] bg-[#0a0b0a]"
+      >
         <button
           onClick={() => setMobileTab('menu')}
-          className={`flex-1 flex flex-col items-center py-3 gap-1 transition-colors ${mobileTab === 'menu' ? 'text-[#5ecf4f]' : 'text-[#aba8a4]'}`}>
+          className={`flex-1 flex flex-col items-center justify-center min-h-[56px] py-2 gap-1 transition-colors ${mobileTab === 'menu' ? 'text-[#5ecf4f]' : 'text-[#aba8a4]'}`}>
           <Search size={20}/>
           <span className="text-[10px] font-medium">Menu</span>
         </button>
         <button
           onClick={() => setMobileTab('cart')}
-          className={`flex-1 flex flex-col items-center py-3 gap-1 transition-colors ${mobileTab === 'cart' ? 'text-[#5ecf4f]' : 'text-[#aba8a4]'}`}>
+          className={`flex-1 flex flex-col items-center justify-center min-h-[56px] py-2 gap-1 transition-colors ${mobileTab === 'cart' ? 'text-[#5ecf4f]' : 'text-[#aba8a4]'}`}>
           <div className="relative">
             <ShoppingCart size={20}/>
             {cart.reduce((s, c) => s + c.quantity, 0) > 0 && (
@@ -3071,13 +3077,13 @@ export default function POSPage() {
         </button>
         <button
           onClick={() => { setView('orders'); fetchOrders(); }}
-          className="flex-1 flex flex-col items-center py-3 gap-1 text-[#aba8a4] transition-colors">
+          className="flex-1 flex flex-col items-center justify-center min-h-[56px] py-2 gap-1 text-[#aba8a4] transition-colors">
           <Clock size={20}/>
           <span className="text-[10px] font-medium">Orders</span>
         </button>
         <button
           onClick={() => setView('session')}
-          className={`flex-1 flex flex-col items-center py-3 gap-1 transition-colors ${posSession ? 'text-[#5ecf4f]' : 'text-yellow-400'}`}>
+          className={`flex-1 flex flex-col items-center justify-center min-h-[56px] py-2 gap-1 transition-colors ${posSession ? 'text-[#5ecf4f]' : 'text-yellow-400'}`}>
           {posSession ? <Unlock size={20}/> : <Lock size={20}/>}
           <span className="text-[10px] font-medium">Shift</span>
         </button>
