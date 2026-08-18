@@ -28,7 +28,7 @@ const ITEMS: {
   description: string; tags: string[]; sortOrder: number;
   inheritFrom?: string; fallbackImage?: string;
 }[] = [
-  { id: 'food-chicken-only', name: 'Chicken Only', price: 10.0, costPrice: 4.0, description: 'One piece of chicken — grilled or fried.', sortOrder: 130, tags: ['chicken', 'extra'] },
+  { id: 'food-chicken-only', name: 'Chicken Only', price: 10.0, costPrice: 4.0, description: 'One piece of chicken — grilled or fried.', sortOrder: 130, tags: ['chicken', 'extra'], fallbackImage: '/jireh/chicken.jpg' },
   { id: 'food-jollof-only-sm', name: 'Jollof Rice Only — Small', price: 30.0, costPrice: 12.0, description: 'Rice only, no chicken.', sortOrder: 40, tags: ['jollof', 'rice'], inheritFrom: 'food-jollof-sm', fallbackImage: '/jireh/food1.jpg' },
   { id: 'food-jollof-only-md', name: 'Jollof Rice Only — Medium', price: 45.0, costPrice: 18.0, description: 'Rice only, no chicken.', sortOrder: 50, tags: ['jollof', 'rice'], inheritFrom: 'food-jollof-md', fallbackImage: '/jireh/food1.jpg' },
   { id: 'food-jollof-only-lg', name: 'Jollof Rice Only — Large', price: 55.0, costPrice: 24.0, description: 'Rice only, no chicken.', sortOrder: 60, tags: ['jollof', 'rice'], inheritFrom: 'food-jollof-lg', fallbackImage: '/jireh/food1.jpg' },
@@ -68,10 +68,14 @@ async function main() {
       if (parent?.image) {
         image = parent.image;
         source = `photo from ${inheritFrom}`;
-      } else if (fallbackImage) {
-        image = fallbackImage;
-        source = 'bundled photo';
       }
+    }
+    // Chicken Only has no parent to inherit from, so its bundled photo is the
+    // only source. Resolved outside the inheritFrom branch or it would be
+    // silently dropped — `image` is applied after ...fields in the create.
+    if (!image && fallbackImage) {
+      image = fallbackImage;
+      source = 'bundled photo';
     }
 
     await prisma.menuItem.create({
@@ -83,7 +87,8 @@ async function main() {
 
   console.log(`\n${created} added, ${skipped} already present.`);
   if (created > 0) {
-    console.log('\nChicken Only has no photo — add one in Admin → Menu.');
+    console.log('\nPhotos: plain plates take their parent dish\'s photo where the');
+    console.log('till has one. Replace any of them in Admin → Menu.');
   }
 }
 

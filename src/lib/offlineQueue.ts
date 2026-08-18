@@ -140,6 +140,43 @@ export async function incrementAttempts(id: string, lastError?: string): Promise
   db.close();
 }
 
+/**
+ * Put dead-lettered orders back in the queue.
+ *
+ * An order is marked `failed` after MAX_ATTEMPTS or on a permanent-looking
+ * HTTP status. Until now that was terminal from the cashier's side — the
+ * banner said "ask a manager" and offered no button, so a shift that lost
+ * connectivity for an hour ended with orders stranded on the device and no
+ * way to send them without someone opening dev tools.
+ *
+ * Resets attempts so the backoff starts clean. A genuinely invalid order will
+ * fail again straight away, which is the honest outcome: it needs discarding,
+ * not retrying. A duplicate replays safely because the server dedupes on
+ * clientRef.
+ *
+ * Returns how many were requeued so the caller can say nothing happened
+ * rather than appearing to work.
+ */
+export async function requeueFailedOrders(): Promise<number> {
+  const failed = await getFailedOrders();
+  if (failed.length === 0) return 0;
+
+  const db = await openDB();
+  try {
+    for (const order of failed) {
+      await tx(db, 'readwrite', s => s.put({
+        ...order,
+        status: 'pending' as const,
+        attempts: 0,
+        lastError: undefined,
+      }));
+    }
+  } finally {
+    db.close();
+  }
+  return failed.length;
+}
+
 export async function discardOrder(id: string): Promise<void> {
   await removeOrder(id);
 }

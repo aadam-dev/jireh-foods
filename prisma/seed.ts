@@ -62,7 +62,7 @@ async function main() {
        two taps on the register instead of a dialog. Priced so that
        "rice only" + "chicken only" lands on the same total as the plate that
        already includes chicken. */
-    { id: 'food-chicken-only', name: 'Chicken Only', price: 10.0, costPrice: 4.0, description: 'One piece of chicken — grilled or fried.', sortOrder: 130, tags: ['chicken', 'extra'] },
+    { id: 'food-chicken-only', name: 'Chicken Only', price: 10.0, costPrice: 4.0, description: 'One piece of chicken — grilled or fried.', sortOrder: 130, image: '/jireh/chicken.jpg', tags: ['chicken', 'extra'] },
     { id: 'food-jollof-only-sm', name: 'Jollof Rice Only — Small', price: 30.0, costPrice: 12.0, description: 'Rice only, no chicken.', image: '/jireh/food1.jpg', sortOrder: 40, tags: ['jollof', 'rice'] },
     { id: 'food-jollof-only-md', name: 'Jollof Rice Only — Medium', price: 45.0, costPrice: 18.0, description: 'Rice only, no chicken.', image: '/jireh/food1.jpg', sortOrder: 50, tags: ['jollof', 'rice'] },
     { id: 'food-jollof-only-lg', name: 'Jollof Rice Only — Large', price: 55.0, costPrice: 24.0, description: 'Rice only, no chicken.', image: '/jireh/food1.jpg', sortOrder: 60, tags: ['jollof', 'rice'] },

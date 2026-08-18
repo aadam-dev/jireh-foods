@@ -892,13 +892,53 @@ export default function POSPage() {
     setFailedSyncCount(failedMod.length);
   }, []);
 
+  /* Send whatever is queued, including anything previously given up on.
+     Requeueing first means one button covers both states — the cashier should
+     not have to know the difference between "waiting" and "stuck". */
+  const retryQueuedOrders = useCallback(async () => {
+    setSyncing(true);
+    try {
+      const { requeueFailedOrders } = await import('@/src/lib/offlineQueue');
+      const requeued = await requeueFailedOrders();
+      const result = await syncPendingOrders();
+      await refreshQueueCounts();
+      if (result.authFailed) {
+        alert('Session expired — please sign in again to send these orders.');
+      } else if (requeued > 0 && result.synced === 0) {
+        /* Say so plainly. Silently returning to the same red banner reads as
+           a broken button, and the honest answer is that these need a manager
+           to look at them rather than another tap. */
+        alert(
+          `Those ${requeued} order${requeued !== 1 ? 's' : ''} still will not send. ` +
+          'Keep serving — they are safe on this device. Show a manager when you can.',
+        );
+      }
+      fetchOrders();
+      fetchSession();
+    } catch {
+      alert('Could not reach the server. Try again when you are back online.');
+    } finally {
+      setSyncing(false);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refreshQueueCounts]);
+
+  /* Count what is queued as soon as the register loads.
+     This used to run only *after* a sync attempt, and the auto-sync below
+     returns early when there is nothing pending — so a device holding only
+     dead-lettered orders reported zero of them forever. The orders were on
+     the device, unsent and invisible, with no banner to say so. */
+  useEffect(() => { refreshQueueCounts(); }, [refreshQueueCounts]);
+
   // ── Auto-sync when connection is restored ─────────────────────────────────
   useEffect(() => {
     if (!isOnline) return;
     let alive = true;
     (async () => {
       const pending = await getPendingOrders().catch(() => []);
-      if (!alive || pending.length === 0) return;
+      // Still recount before leaving: stuck orders need to surface even when
+      // there is nothing sendable.
+      if (!alive || pending.length === 0) { if (alive) refreshQueueCounts(); return; }
       setSyncing(true);
       try {
         const result = await syncPendingOrders();
@@ -2680,25 +2720,21 @@ export default function POSPage() {
             {!isOnline ? (
               <><AlertCircle size={12}/> No internet — orders will be saved locally until reconnected</>
             ) : failedSyncCount > 0 ? (
-              <><AlertCircle size={12}/> {failedSyncCount} order{failedSyncCount !== 1 ? 's' : ''} failed to sync — ask a manager</>
+              <><AlertCircle size={12}/> {failedSyncCount} order{failedSyncCount !== 1 ? 's' : ''} stuck — not yet sent to the server</>
             ) : (
               <><Clock size={12}/> {pendingCount} offline order{pendingCount !== 1 ? 's' : ''} waiting to sync</>
             )}
           </div>
-          {isOnline && pendingCount > 0 && (
+          {/* Stuck orders used to be a dead end: the banner named the problem
+              and offered nothing to do about it, so a shift that lost signal
+              for an hour finished with orders stranded on the device. Retrying
+              puts them back in the queue and sends them in the same tap. */}
+          {isOnline && (pendingCount > 0 || failedSyncCount > 0) && (
             <button
-              onClick={async () => {
-                setSyncing(true);
-                try {
-                  const result = await syncPendingOrders();
-                  await refreshQueueCounts();
-                  if (result.authFailed) alert('Session expired — please sign in again to sync offline orders.');
-                  fetchOrders(); fetchSession();
-                } finally { setSyncing(false); }
-              }}
+              onClick={retryQueuedOrders}
               disabled={syncing}
               className="underline underline-offset-2 hover:opacity-80 disabled:opacity-50 transition-opacity">
-              {syncing ? 'Syncing…' : 'Sync now'}
+              {syncing ? 'Sending…' : failedSyncCount > 0 ? 'Try again' : 'Sync now'}
             </button>
           )}
         </div>
